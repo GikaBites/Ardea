@@ -1,8 +1,11 @@
 {
   "_comment": "Written by the release kit (release.py set-key / set-store). Public values only: no secrets.",
-  "release_public_key": "",
+  "release_public_key": "NdxNbFZ2zSveJ0V8k5Wlt6vCfS/vwVgK9YgnQMsCIPE=",
   "lemonsqueezy": {
-    "store_id": "",
-    "products": {}
+    "store_id": "525170",
+    "products": {
+      "1531208": "pro",
+      "1531221": "msp"
+    }
   }
 }
