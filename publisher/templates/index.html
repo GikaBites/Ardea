@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Alerts · {{ product_name }}{% endblock %}
+{% block body %}
+<main class="ar-main">
+	<section class="ar-tiles" aria-label="Verdicts">
+		<button type="button" class="ar-tile ar-tile--all" data-tile="all">
+			<span class="ar-tile__label">All alerts</span>
+			<span class="ar-tile__count" data-count="total">–</span>
+		</button>
+		{% for verdict, label, key in [
+			("True Positive", "True Positive", "tp"),
+			("Needs Human Review", "Needs Review", "review"),
+			("Benign Positive", "Benign Positive", "benign"),
+			("False Positive", "False Positive", "fp")] %}
+		<button type="button" class="ar-tile ar-tile--{{ key }}" data-tile="verdict" data-verdict="{{ verdict }}">
+			<span class="ar-tile__label">{{ label }}</span>
+			<span class="ar-tile__count" data-count="{{ verdict }}">–</span>
+		</button>
+		{% endfor %}
+		<button type="button" class="ar-tile ar-tile--escalate" data-tile="escalate">
+			<span class="ar-tile__label">To escalate</span>
+			<span class="ar-tile__count" data-count="escalate">–</span>
+		</button>
+	</section>
+
+	<form id="filter-form" class="ar-toolbar" method="get" role="search">
+		<div class="ar-toolbar__row">
+			<label class="ar-search">
+				<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+				<input id="q" name="q" value="{{ filters.q }}" placeholder="Search rule, host, user, command, alert ID…"
+					autocomplete="off" spellcheck="false" aria-label="Search" />
+				<kbd class="ar-search__hint" title="Press / to search">/</kbd>
+			</label>
+
+			<div class="ar-segment" role="group" aria-label="Time range">
+				{% for value, label in [("24h", "24h"), ("7d", "7 days"), ("30d", "30 days"), ("", "All")] %}
+				<button type="button" class="ar-segment__btn {% if filters.range == value %}is-active{% endif %}"
+					data-range="{{ value }}">{{ label }}</button>
+				{% endfor %}
+			</div>
+
+			{% if siems | length > 1 or filters.siem %}
+			<label class="ar-sort">
+				<span>SIEM</span>
+				<select id="siem" class="form-select form-select-sm" aria-label="Show alerts from">
+					<option value="" {% if not filters.siem %}selected{% endif %}>All SIEMs</option>
+					{% for s in siems %}
+					<option value="{{ s.id }}" {% if filters.siem == s.id %}selected{% endif %}>{{ s.name }}</option>
+					{% endfor %}
+					{% if filters.siem and filters.siem not in siems | map(attribute="id") | list %}
+					<option value="{{ filters.siem }}" selected>{{ filters.siem }}</option>
+					{% endif %}
+				</select>
+			</label>
+			{% endif %}
+
+			<label class="ar-sort">
+				<span>Sort</span>
+				<select id="sort" class="form-select form-select-sm" aria-label="Sort alerts">
+					<option value="newest" {% if filters.sort == "newest" %}selected{% endif %}>Newest first</option>
+					<option value="severity" {% if filters.sort == "severity" %}selected{% endif %}>Highest severity</option>
+					<option value="confidence" {% if filters.sort == "confidence" %}selected{% endif %}>Highest confidence</option>
+				</select>
+			</label>
+		</div>
+
+		<div class="ar-toolbar__row ar-toolbar__chips">
+			{% for name, label, values in filter_options %}
+			<div class="ar-chipgroup" data-pill-group="{{ name }}">
+				<span class="ar-chipgroup__label">{{ label }}</span>
+				{% for value in values %}
+				<button type="button"
+					class="ar-chip ar-chip--{{ name }}-{{ value | lower | replace(' ', '-') }} {% if value in filters.includes[name] %}is-include{% elif value in filters.excludes[name] %}is-exclude{% endif %}"
+					data-filter-key="{{ name }}" data-filter-value="{{ value }}"
+					title="Click: show only this · Shift+click: hide this">{{ value }}</button>
+				{% endfor %}
+			</div>
+			{% endfor %}
+			<div class="ar-chipgroup">
+				<span class="ar-chipgroup__label">Escalation</span>
+				<button type="button" class="ar-chip {% if filters.escalate == 'true' %}is-include{% endif %}" data-escalate-value="true">Escalate</button>
+				<button type="button" class="ar-chip {% if filters.escalate == 'false' %}is-include{% endif %}" data-escalate-value="false">No escalation</button>
+			</div>
+
+			<details class="ar-more" {% if filters.min_confidence or filters.max_confidence or filters.logic_mode == 'or' %}open{% endif %}>
+				<summary>More filters</summary>
+				<div class="ar-more__body">
+					<label>Confidence
+						<input type="number" class="form-control form-control-sm" id="min_confidence" min="0" max="100"
+							value="{{ filters.min_confidence }}" placeholder="0" aria-label="Minimum confidence" />
+						<span>to</span>
+						<input type="number" class="form-control form-control-sm" id="max_confidence" min="0" max="100"
+							value="{{ filters.max_confidence }}" placeholder="100" aria-label="Maximum confidence" />
+					</label>
+					<div class="ar-logic" role="group" aria-label="How search and confidence combine">
+						<span>Search and confidence must</span>
+						<button type="button" class="ar-segment__btn logic-toggle {% if filters.logic_mode != 'or' %}is-active{% endif %}" data-logic-value="and">both match</button>
+						<button type="button" class="ar-segment__btn logic-toggle {% if filters.logic_mode == 'or' %}is-active{% endif %}" data-logic-value="or">either match</button>
+					</div>
+				</div>
+			</details>
+
+			{% if can_csv %}<a class="ar-clear" href="/api/alerts.csv" id="export-csv">Export CSV</a>{% endif %}
+			<a class="ar-clear" href="/" id="clear-filters">Clear filters</a>
+		</div>
+	</form>
+
+	<div class="ar-results">
+		<div class="ar-results__count"><span id="total-count">0</span> alerts</div>
+		<div class="ar-live" id="live-indicator" data-state="connecting" title="Live updates">
+			<span class="ar-live__dot" aria-hidden="true"></span><span class="ar-live__text">Connecting</span>
+		</div>
+	</div>
+
+	<div id="alert-list" class="ar-list" aria-live="polite"></div>
+
+	<div id="empty-state" class="ar-empty d-none">
+		<div class="ar-empty__title">No alerts match these filters</div>
+		<a href="/">Clear filters</a>
+	</div>
+	<div id="load-more-sentinel" class="ar-loading d-none">Loading older alerts…</div>
+</main>
+{% endblock %}
+{% block scripts %}
+<!-- JSON data block, not executable: works with the strict CSP (no inline scripts) -->
+<script id="ardea-state" type="application/json">{{ {"filters": filters, "pageSize": page_size, "canFeedback": can_feedback, "canRetriage": can_retriage, "canCsv": can_csv, "multiSiem": siems | length > 1} | tojson }}</script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}

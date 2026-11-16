@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Insights · {{ product_name }}{% endblock %}
+{% set names = {"report": "Report", "trends": "Trends", "tuning": "Rule tuning"} %}
+{% block body %}
+<main class="insights">
+	<div class="ins-head">
+		<div>
+			<h1 class="ins-title">Insights</h1>
+			<nav class="ins-tabs" aria-label="Insights sections">
+				<a href="/insights/report{% if not locked %}?{{ period.key }}{% if siem %}&siem={{ siem }}{% endif %}{% endif %}" class="{{ 'is-active' if section == 'report' }}">Report</a>
+				<a href="/insights/trends{% if not locked and siem %}?siem={{ siem }}{% endif %}" class="{{ 'is-active' if section == 'trends' }}">Trends</a>
+				{% if g.user.role in ("admin", "analyst") %}
+				<a href="/insights/tuning{% if not locked and siem %}?siem={{ siem }}{% endif %}" class="{{ 'is-active' if section == 'tuning' }}">Rule tuning</a>
+				{% endif %}
+			</nav>
+		</div>
+		{% if not locked %}
+		<form class="ins-controls" method="get" action="/insights/{{ section }}">
+			{% if section == "report" %}
+			<label class="visually-hidden" for="ins-range">Period</label>
+			<select class="form-select form-select-sm" id="ins-range" name="range" data-autosubmit>
+				{% for key, label in (("7d", "Last 7 days"), ("30d", "Last 30 days"), ("90d", "Last 90 days")) %}
+				<option value="{{ key }}" {{ 'selected' if period.range == key }}>{{ label }}</option>
+				{% endfor %}
+				{% if period.month %}<option value="" selected>{{ period.label }}</option>{% endif %}
+			</select>
+			<label class="visually-hidden" for="ins-month">Month</label>
+			<input class="form-control form-control-sm" type="month" id="ins-month" name="month" value="{{ period.month }}" data-autosubmit />
+			{% endif %}
+			{% if siems | length > 1 %}
+			<label class="visually-hidden" for="ins-siem">SIEM</label>
+			<select class="form-select form-select-sm" id="ins-siem" name="siem" data-autosubmit>
+				{% if g.user.role == "admin" or g.user.siem_access is none %}<option value="">All SIEMs</option>{% endif %}
+				{% for s in siems %}<option value="{{ s.id }}" {{ 'selected' if siem == s.id }}>{{ s.name }}</option>{% endfor %}
+			</select>
+			{% endif %}
+			{% if section == "report" %}<button type="button" class="ar-button" data-print>Print or save as PDF</button>{% endif %}
+		</form>
+		{% endif %}
+	</div>
+
+	{% if locked %}
+	<section class="ins-locked">
+		<p class="ins-eyebrow">{{ needs | upper }} feature</p>
+		{% if section == "tuning" %}
+		<h2>Silence the noise at its source</h2>
+		<p>The rule-tuning advisor finds alert patterns that {{ product_name }} closed again and again and no analyst disputed, such as the same backup script, installer or admin tool, and writes the Elastic rule exception for each one, ready to paste.</p>
+		<ul><li>Fewer alerts, before triage even starts</li><li>Exact conditions: program, parent, account, and host when it is only one</li><li>Never suggested for credential access, lateral movement, impact or exfiltration rules</li></ul>
+		{% elif section == "trends" %}
+		<h2>See triage improve week by week</h2>
+		<p>Weekly verdicts, how often your analysts agree with {{ product_name }}, and how long each alert takes, for the last 12 weeks.</p>
+		<ul><li>Spot a rule or a model change that made things worse</li><li>Show your team the agreement rate rising as they give feedback</li></ul>
+		{% else %}
+		<h2>The report your manager asks for</h2>
+		<p>One page per week, month or quarter: alerts triaged, closed automatically, sent to a person, true positives found, analyst time saved, the noisiest rules, and how often analysts agreed. Print it, save it as PDF, or have it e-mailed every month.</p>
+		<ul><li>Justify the budget with numbers from your own alerts</li><li>Per-customer reports with your logo in the MSP edition</li></ul>
+		{% endif %}
+		<p class="ins-locked__cta">This installation runs the {{ edition | capitalize }} edition. {% if g.user.role == "admin" %}Add a {{ needs | capitalize }} licence key to <code>.env</code> as <code>ARDEA_LICENSE_KEY</code> to switch it on.{% else %}Ask your administrator about upgrading.{% endif %}</p>
+	</section>
+
+	{% elif empty_scope %}
+	<p class="ins-empty">You don't have access to that SIEM.</p>
+
+	{% elif section == "report" %}
+	{% set t = data.totals %}{% set fb = data.feedback %}
+	<header class="ins-print-head">
+		<div class="ins-print-brand">{% if brand and brand.logo %}<img src="{{ url_for('brand_logo') }}" alt="" />{% else %}<img src="{{ url_for('static', filename='img/ardea-mark.svg') }}" alt="" />{% endif %}<strong>{{ product_name }}</strong></div>
+		<div><strong>Security alert triage report</strong> · {{ period.label }}{% if siem_name %} · {{ siem_name }}{% endif %}</div>
+		<div class="ins-muted">{{ period.start | localtime("%d/%m/%Y") }} – {{ period.end | localtime("%d/%m/%Y") }} · generated {{ generated | localtime }}</div>
+	</header>
+
+	<section class="ins-kpis" aria-label="Key figures">
+		<div><span>Alerts triaged</span><b>{{ "{:,}".format(t.raw) }}</b><small>{{ "{:,}".format(t.alerts) }} after merging duplicates</small></div>
+		<div class="is-good"><span>Closed automatically</span><b>{{ t.closed_pct }}%</b><small>{{ "{:,}".format(t.closed) }} with cited evidence</small></div>
+		<div class="is-warn"><span>Sent to a person</span><b>{{ "{:,}".format(t.to_person) }}</b><small>{{ t.review }} for review, {{ t.tp }} true positive{{ '' if t.tp == 1 else 's' }}</small></div>
+		<div class="is-bad"><span>True positives</span><b>{{ t.tp }}</b><small>listed below</small></div>
+		<div><span>Analyst time saved</span><b>{{ t.hours_saved }} h</b><small>estimate, {{ data.minutes_per_alert }} min per closed alert</small></div>
+		<div><span>Analyst agreement</span><b>{{ fb.agreement_pct if fb.agreement_pct is not none else "–" }}{% if fb.agreement_pct is not none %}%{% endif %}</b><small>{{ fb.reviewed }} verdict{{ '' if fb.reviewed == 1 else 's' }} reviewed{% if fb.closure_accuracy_pct is not none %} · closures right {{ fb.closure_accuracy_pct }}%{% endif %}</small></div>
+	</section>
+
+	<section class="ins-block">
+		<h2>True positives</h2>
+		{% if data.true_positives %}
+		<div class="ins-table"><table>
+			<thead><tr><th>Time</th><th>Rule</th><th>Host</th><th>Severity</th><th>Summary</th></tr></thead>
+			<tbody>{% for r in data.true_positives %}<tr>
+				<td class="ins-nowrap">{{ r.created_at | localtime }}</td><td>{{ r.rule_name }}</td><td class="ins-mono ins-nowrap">{{ r.host_name or "–" }}</td>
+				<td>{{ r.severity }}</td><td>{{ r.summary }}</td></tr>{% endfor %}</tbody>
+		</table></div>
+		{% else %}<p class="ins-muted">No true positives in this period.</p>{% endif %}
+	</section>
+
+	<section class="ins-block">
+		<h2>Noisiest rules</h2>
+		{% if data.rules %}
+		<div class="ins-table"><table>
+			<thead><tr><th>Rule</th><th class="num">Alerts</th><th class="num">Closed automatically</th><th class="num">Review</th><th class="num">True positive</th></tr></thead>
+			<tbody>{% for r in data.rules %}<tr><td>{{ r.rule_name }}</td><td class="num">{{ r.raw }}</td>
+				<td class="num"><svg class="ins-bar" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true"><rect class="bg" width="100" height="6" rx="3"/><rect class="fg" width="{{ r.closed_pct }}" height="6" rx="3"/></svg>{{ r.closed_pct }}%</td>
+				<td class="num">{{ r.review }}</td><td class="num">{{ r.tp }}</td></tr>{% endfor %}</tbody>
+		</table></div>
+		{% if g.user.role in ("admin", "analyst") %}<p class="ins-muted ins-noprint">Rules that are almost always closed are candidates for <a href="/insights/tuning{% if siem %}?siem={{ siem }}{% endif %}">rule tuning</a>.</p>{% endif %}
+		{% else %}<p class="ins-muted">No alerts in this period.</p>{% endif %}
+	</section>
+	<p class="ins-foot">Alerts triaged counts every alert, including duplicates merged into one. Time saved assumes {{ data.minutes_per_alert }} minutes of analyst work per alert closed automatically (setting <code>ARDEA_MINUTES_PER_ALERT</code>). Agreement is based on analyst feedback in {{ product_name }}.</p>
+
+	{% elif section == "trends" %}
+	<section class="ins-block">
+		<h2>Verdicts per week</h2>
+		{% if data.weeks %}
+		<div class="ins-legend"><span class="k-closed">Closed automatically</span><span class="k-review">Needs review</span><span class="k-tp">True positive</span></div>
+		{% set n = data.weeks | length %}{% set H = 160 %}
+		<div class="ins-chart">
+		<svg viewBox="0 0 {{ n * 44 }} 222" role="img" aria-label="Stacked bars of verdicts per week for the last 12 weeks" preserveAspectRatio="xMidYMid meet">
+			{% for w in data.weeks %}
+			{% set x = loop.index0 * 44 + 9 %}{% set total = (H * w.alerts / data.max) %}
+			{% set hc = (H * w.closed / data.max) %}{% set hr = (H * w.review / data.max) %}{% set ht = (H * w.tp / data.max) %}
+			<g><title>{{ w.week | localtime("%d/%m") }}: {{ w.alerts }} alerts, {{ w.closed }} closed, {{ w.review }} review, {{ w.tp }} true positive</title>
+			<rect class="s-closed" x="{{ x }}" y="{{ (192 - hc) | round(2) }}" width="26" height="{{ hc | round(2) }}"/>
+			<rect class="s-review" x="{{ x }}" y="{{ (192 - hc - hr) | round(2) }}" width="26" height="{{ hr | round(2) }}"/>
+			<rect class="s-tp" x="{{ x }}" y="{{ (192 - hc - hr - ht) | round(2) }}" width="26" height="{{ ht | round(2) }}"/>
+			<text class="ins-n" x="{{ x + 13 }}" y="{{ (186 - total) | round(2) }}" text-anchor="middle">{{ w.alerts }}</text>
+			<text class="ins-lbl" x="{{ x + 13 }}" y="212" text-anchor="middle">{{ w.week | localtime("%d/%m") }}</text></g>
+			{% endfor %}
+			<line class="ins-axis" x1="0" x2="{{ n * 44 }}" y1="192.5" y2="192.5"/>
+		</svg>
+		</div>
+		<div class="ins-table"><table>
+			<thead><tr><th>Week of</th><th class="num">Alerts</th><th class="num">Closed</th><th class="num">Review</th><th class="num">True positive</th><th class="num">Analyst agreement</th><th class="num">Median min per alert</th></tr></thead>
+			<tbody>{% for w in data.weeks | reverse %}<tr><td>{{ w.week | localtime("%d/%m/%Y") }}</td><td class="num">{{ w.alerts }}</td><td class="num">{{ w.closed }}</td><td class="num">{{ w.review }}</td><td class="num">{{ w.tp }}</td>
+				<td class="num">{{ (w.agreement_pct | string) + "%" if w.agreement_pct is not none else "–" }}</td><td class="num">{{ w.median_min if w.median_min is not none else "–" }}</td></tr>{% endfor %}</tbody>
+		</table></div>
+		{% else %}<p class="ins-muted">No alerts in the last 12 weeks.</p>{% endif %}
+	</section>
+
+	{% else %}
+	<section class="ins-block">
+		<h2>Rule tuning suggestions</h2>
+		<p class="ins-muted">Patterns from the last 30 days that {{ product_name }} closed every time (at least 5 alerts) and no analyst disputed. An exception stops the rule from alerting on that exact pattern, so check each one before adding it: Kibana → Security → Rules → the rule → Rule exceptions → Add rule exception. Rules for credential access, lateral movement, impact and exfiltration are never suggested.</p>
+		{% for r in data.patterns %}
+		<article class="ins-pattern">
+			<header><strong>{{ r.rule_name }}</strong><span class="ins-muted">{{ r.raw }} alerts · {{ r.hosts }} host{{ '' if r.hosts == 1 else 's' }} · last {{ r.last_seen | localtime }}{% if siems | length > 1 %} · {{ siem_names.get(r.siem, r.siem) }}{% endif %}{% if r.confirmed %} · {{ r.confirmed }} confirmed by analysts{% endif %}</span></header>
+			<ul class="ins-conds">{% for e in r.entries %}<li><code>{{ e.field }}</code> is <code>{{ e.value }}</code></li>{% endfor %}</ul>
+			<div class="ins-copyrow">
+				<code class="ins-kql">{{ r.kql }}</code>
+				<button type="button" class="ar-button" data-copy="{{ r.kql }}">Copy query</button>
+			</div>
+			<details class="ins-json"><summary>Exception as JSON (Elastic exceptions API)</summary>
+				<pre>{{ r.entries | exception_json }}</pre>
+				<button type="button" class="ar-button" data-copy="{{ r.entries | exception_json }}">Copy JSON</button>
+			</details>
+		</article>
+		{% else %}
+		<p class="ins-empty">No suggestions yet. They appear once a pattern has been closed at least 5 times in 30 days. Alerts collected before this version have no process details and are not counted.</p>
+		{% endfor %}
+	</section>
+	{% endif %}
+</main>
+<script src="{{ url_for('static', filename='js/insights.js') }}"></script>
+{% endblock %}

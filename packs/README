@@ -1,0 +1,7 @@
+Ardea playbook pack (Pro / MSP)
+
+Put the playbook pack you downloaded from your Ardea order here, e.g. ardea-playbooks-2026.11.ardpack.
+The worker picks it up within a minute; no restart needed. If several packs are here, the newest one is used.
+
+The pack is signed. A pack that was changed after signing is refused (see the worker log). To change a
+playbook for your environment, copy it into worker/playbooks.yaml: your own playbooks always win.

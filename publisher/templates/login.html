@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Sign in · {{ product_name }}{% endblock %}
+{% block body %}
+<main class="container auth-page">
+	<div class="card shadow-sm">
+		<div class="card-body">
+			{% if not brand %}
+			<div class="auth-brand">
+				<img src="{{ url_for('static', filename='img/ardea-mark.svg') }}" alt="" width="64" height="64" />
+				<p>Every alert weighed. Every verdict explained.</p>
+			</div>
+			{% endif %}
+			<h1 class="h5 mb-3">Sign in</h1>
+			{% if demo_mode %}<div class="ar-demo-hint">Demo: sign in as <b>demo</b> with the password <b>demo</b>.</div>{% endif %}
+			{% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+			<form method="post" action="{{ url_for('login') }}">
+				<input type="hidden" name="next" value="{{ next }}" />
+				<div class="mb-3">
+					<label class="form-label" for="username">Username</label>
+					<input class="form-control" id="username" name="username" value="{{ username }}"
+						autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus />
+				</div>
+				<div class="mb-3">
+					<label class="form-label" for="password">Password</label>
+					<input class="form-control" id="password" name="password" type="password"
+						autocomplete="current-password" required />
+				</div>
+				<button type="submit" class="btn btn-primary w-100">Sign in</button>
+			</form>
+		</div>
+	</div>
+</main>
+{% endblock %}

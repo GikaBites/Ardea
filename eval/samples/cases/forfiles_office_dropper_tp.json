@@ -1,0 +1,172 @@
+{
+ "name": "forfiles_office_dropper_tp",
+ "tags": [
+  "malicious"
+ ],
+ "alert_file": "../alerts/forfiles_backup.json",
+ "alert_patch": [
+  {
+   "key": "process.command_line",
+   "value": "forfiles /p C:\\Windows\\System32 /m notepad.exe /c \"C:\\Users\\jdoe\\AppData\\Local\\Temp\\upd.exe -k 4f2a\""
+  },
+  {
+   "key": "process.parent.name",
+   "value": "WINWORD.EXE"
+  },
+  {
+   "key": "process.parent.executable",
+   "value": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+  },
+  {
+   "key": "process.parent.command_line",
+   "value": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jdoe\\Downloads\\Invoice_4471.docm\""
+  },
+  {
+   "key": "user.name",
+   "value": "jdoe"
+  },
+  {
+   "key": "related.user",
+   "value": [
+    "jdoe"
+   ]
+  },
+  {
+   "key": "winlog.event_data.ParentUser",
+   "value": "CONTOSO\\jdoe"
+  },
+  {
+   "key": "kibana.alert.reason",
+   "value": "process event with process forfiles.exe, parent process WINWORD.EXE, by jdoe on fs01 created medium alert Command Execution via ForFiles."
+  }
+ ],
+ "fixtures": {
+  "get_process_tree": [
+   {
+    "match": {},
+    "result": {
+     "process": {
+      "process.name": "forfiles.exe",
+      "process.command_line": "forfiles /p C:\\Windows\\System32 /m notepad.exe /c \"C:\\Users\\jdoe\\AppData\\Local\\Temp\\upd.exe -k 4f2a\"",
+      "user.name": "jdoe"
+     },
+     "ancestors_oldest_last": [
+      {
+       "process.name": "WINWORD.EXE",
+       "process.entity_id": "{AAAAAAAA-24FE-6AD9-D76A-010000001100}",
+       "process.command_line": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jdoe\\Downloads\\Invoice_4471.docm\"",
+       "user.name": "jdoe"
+      }
+     ],
+     "children": [
+      {
+       "process.name": "upd.exe",
+       "process.command_line": "C:\\Users\\jdoe\\AppData\\Local\\Temp\\upd.exe -k 4f2a",
+       "process.code_signature.trusted": false,
+       "count": 1
+      }
+     ],
+     "children_total": 1,
+     "children_distinct": 1
+    }
+   }
+  ],
+  "get_baseline": [
+   {
+    "match": {},
+    "result": {
+     "scope": "all hosts",
+     "days": 30,
+     "total_executions": 1,
+     "distinct_hosts": 1,
+     "days_with_activity": 1,
+     "first_seen": "2026-10-21T20:47:58Z",
+     "last_seen": "2026-10-21T20:47:58Z",
+     "top_users": [
+      {
+       "value": "jdoe",
+       "count": 1
+      }
+     ]
+    }
+   }
+  ],
+  "search_host_events": [
+   {
+    "match": {
+     "category": "network"
+    },
+    "result": {
+     "total_events": 3,
+     "distinct_patterns": 1,
+     "patterns": [
+      {
+       "process.name": "upd.exe",
+       "destination.ip": "185.220.101.47",
+       "destination.port": 443,
+       "count": 3
+      }
+     ],
+     "public_destinations": [
+      "185.220.101.47"
+     ]
+    }
+   }
+  ],
+  "get_related_alerts": [
+   {
+    "match": {},
+    "result": {
+     "total_alerts": 3,
+     "distinct_rules": 2,
+     "rules": [
+      {
+       "rule": "Command Execution via ForFiles",
+       "count": 1
+      },
+      {
+       "rule": "Suspicious Microsoft Office Child Process",
+       "count": 2,
+       "severity": "high",
+       "tactics": [
+        "Execution"
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "web_search": [
+   {
+    "match": {},
+    "result": {
+     "provider": "replay",
+     "query_sent": "\"185.220.101.47\" malware reputation",
+     "result_count": 2,
+     "independent_domains": 2,
+     "results": [
+      {
+       "title": "185.220.101.47 | AbuseIPDB",
+       "snippet": "Reported 2,113 times. Confidence of abuse 100%. Tor exit node.",
+       "domain": "www.abuseipdb.com",
+       "tier": 2
+      },
+      {
+       "title": "185.220.101.47 - GreyNoise",
+       "snippet": "Tor exit node, observed scanning",
+       "domain": "viz.greynoise.io",
+       "tier": 2
+      }
+     ]
+    }
+   }
+  ]
+ },
+ "expected": {
+  "verdict": "True Positive",
+  "acceptable": [
+   "Needs Human Review"
+  ],
+  "must_escalate": true
+ }
+}

@@ -1,0 +1,6 @@
+psycopg[binary]>=3.2
+requests>=2.32
+ollama>=0.5.1
+pydantic>=2.9
+pyyaml>=6.0
+cryptography>=42

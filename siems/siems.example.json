@@ -1,0 +1,26 @@
+{
+  "siems": [
+    {
+      "id": "hq",
+      "name": "Head office",
+      "url": "https://elastic-hq.example.local:9200",
+      "fetcher_api_key": "FETCHER_KEY_FOR_HQ",
+      "worker_api_key": "WORKER_KEY_FOR_HQ",
+      "kibana_url": "https://kibana-hq.example.local:5601",
+      "ca_cert": "",
+      "alerts_index": ".alerts-security.alerts-default",
+      "events_indices": "logs-*"
+    },
+    {
+      "id": "customer-a",
+      "name": "Customer A",
+      "url": "https://elastic.customer-a.example:9200",
+      "fetcher_api_key": "FETCHER_KEY_FOR_CUSTOMER_A",
+      "worker_api_key": "WORKER_KEY_FOR_CUSTOMER_A",
+      "kibana_url": "https://kibana.customer-a.example",
+      "ca_cert": "/app/siems/customer-a-ca.crt",
+      "events_indices": "logs-*",
+      "enabled": true
+    }
+  ]
+}

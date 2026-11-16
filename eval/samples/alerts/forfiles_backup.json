@@ -1,0 +1,1263 @@
+{
+  "_index": ".internal.alerts-security.alerts-default-000012",
+  "_id": "43559810ea14f5291d6d58fb5cf7f94d8211d01ca6b0b9cfcb2dbcd5726e7bc3",
+  "_score": 1,
+  "_source": {
+    "kibana.alert.rule.execution.timestamp": "2026-10-21T20:50:49.634Z",
+    "kibana.alert.start": "2026-10-21T20:50:49.634Z",
+    "kibana.alert.last_detected": "2026-10-21T20:50:49.634Z",
+    "kibana.version": "9.3.0",
+    "kibana.alert.rule.parameters": {
+      "description": "Detects attempts to execute a command via the forfiles Windows utility. Adversaries may use this utility to proxy execution via a trusted parent process.",
+      "risk_score": 47,
+      "severity": "medium",
+      "note": "## Triage and analysis\n\n### Investigating Command Execution via ForFiles\n\n### Possible investigation steps\n\n- Identify the user account that performed the action and whether it should perform this kind of action.\n- Contact the account owner and confirm whether they are aware of this activity.\n- Investigate other alerts associated with the user/host during the past 48 hours.\n- Validate the activity is not related to planned patches, updates, network administrator activity, or legitimate software installations.\n- Assess whether this behavior is prevalent in the environment by looking for similar occurrences across hosts.\n\n### False positive analysis\n\n- This is a dual-use tool, meaning its usage is not inherently malicious. Analysts can dismiss the alert if the administrator is aware of the activity, no other suspicious activity was identified.\n\n### Response and Remediation\n\n- Initiate the incident response process based on the outcome of the triage.\n- Isolate the involved host to prevent further post-compromise behavior.\n- Run a full antimalware scan. This may reveal additional artifacts left in the system, persistence mechanisms, and malware components.\n- Investigate credential exposure on systems compromised or used by the attacker to ensure all compromised accounts are identified. Reset passwords for these accounts and other potentially compromised credentials, such as email, business systems, and web services.\n- Determine the initial vector abused by the attacker and take action to prevent reinfection through the same vector.\n- Using the incident response data, update logging and audit policies to improve the mean time to detect (MTTD) and the mean time to respond (MTTR).\n",
+      "license": "Elastic License v2",
+      "timestamp_override": "event.ingested",
+      "author": [
+        "Elastic"
+      ],
+      "false_positives": [],
+      "from": "now-9m",
+      "rule_id": "3f7bd5ac-9711-44b4-82c1-fa246d829f15",
+      "max_signals": 100,
+      "risk_score_mapping": [],
+      "severity_mapping": [],
+      "threat": [
+        {
+          "framework": "MITRE ATT&CK",
+          "tactic": {
+            "id": "TA0005",
+            "name": "Defense Evasion",
+            "reference": "https://attack.mitre.org/tactics/TA0005/"
+          },
+          "technique": [
+            {
+              "id": "T1202",
+              "name": "Indirect Command Execution",
+              "reference": "https://attack.mitre.org/techniques/T1202/"
+            }
+          ]
+        }
+      ],
+      "to": "now",
+      "references": [
+        "https://lolbas-project.github.io/lolbas/Binaries/Forfiles/"
+      ],
+      "version": 4,
+      "exceptions_list": [
+        {
+          "id": "744bde89-a235-42f3-9baf-cc07eb5173d1",
+          "list_id": "6b1a1812-cb8f-4f90-b8ed-4b565440e185",
+          "type": "rule_default",
+          "namespace_type": "single"
+        }
+      ],
+      "immutable": true,
+      "rule_source": {
+        "type": "external",
+        "is_customized": false,
+        "customized_fields": [],
+        "has_base_version": true
+      },
+      "related_integrations": [
+        {
+          "package": "endpoint",
+          "version": "^8.2.0"
+        },
+        {
+          "package": "windows",
+          "version": "^3.0.0"
+        },
+        {
+          "package": "system",
+          "version": "^2.0.0"
+        },
+        {
+          "package": "m365_defender",
+          "version": "^3.0.0"
+        },
+        {
+          "package": "sentinel_one_cloud_funnel",
+          "version": "^1.0.0"
+        },
+        {
+          "package": "crowdstrike",
+          "version": "^2.0.0"
+        }
+      ],
+      "required_fields": [
+        {
+          "name": "event.type",
+          "type": "keyword",
+          "ecs": true
+        },
+        {
+          "name": "host.os.type",
+          "type": "keyword",
+          "ecs": true
+        },
+        {
+          "name": "process.args",
+          "type": "keyword",
+          "ecs": true
+        },
+        {
+          "name": "process.name",
+          "type": "keyword",
+          "ecs": true
+        },
+        {
+          "name": "process.pe.original_file_name",
+          "type": "keyword",
+          "ecs": true
+        }
+      ],
+      "setup": "",
+      "type": "eql",
+      "language": "eql",
+      "index": [
+        "endgame-*",
+        "logs-crowdstrike.fdr*",
+        "logs-endpoint.events.process-*",
+        "logs-m365_defender.event-*",
+        "logs-sentinel_one_cloud_funnel.*",
+        "logs-system.security*",
+        "logs-windows.forwarded*",
+        "logs-windows.sysmon_operational-*",
+        "winlogbeat-*"
+      ],
+      "query": "process where host.os.type == \"windows\" and event.type == \"start\" and\n (process.name : \"forfiles.exe\" or ?process.pe.original_file_name == \"forfiles.exe\") and process.args : (\"/c\", \"-c\")\n"
+    },
+    "kibana.alert.rule.category": "Event Correlation Rule",
+    "kibana.alert.rule.consumer": "siem",
+    "kibana.alert.rule.execution.uuid": "0417c124-a878-48d0-8ff9-0df7c2eaa0a6",
+    "kibana.alert.rule.name": "Command Execution via ForFiles",
+    "kibana.alert.rule.producer": "siem",
+    "kibana.alert.rule.revision": 1,
+    "kibana.alert.rule.rule_type_id": "siem.eqlRule",
+    "kibana.alert.rule.uuid": "503f6573-f4ab-4550-bbe4-8f487611f9c0",
+    "kibana.space_ids": [
+      "default"
+    ],
+    "kibana.alert.rule.tags": [
+      "Domain: Endpoint",
+      "OS: Windows",
+      "Use Case: Threat Detection",
+      "Tactic: Defense Evasion",
+      "Data Source: Elastic Endgame",
+      "Data Source: Elastic Defend",
+      "Data Source: Windows Security Event Logs",
+      "Data Source: Microsoft Defender for Endpoint",
+      "Data Source: Sysmon",
+      "Data Source: SentinelOne",
+      "Data Source: Crowdstrike",
+      "Resources: Investigation Guide"
+    ],
+    "@timestamp": "2026-10-21T20:50:46.775Z",
+    "agent": {
+      "name": "FS01",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "ephemeral_id": "00000000-0000-4000-8000-000000000002",
+      "type": "filebeat",
+      "version": "9.5.2"
+    },
+    "process": {
+      "args": [
+        "forfiles",
+        "-p",
+        "C:\\SQL Backups\\Automatic",
+        "-s",
+        "-m",
+        "*.*",
+        "/D",
+        "-3",
+        "/C",
+        "cmd /c del @path"
+      ],
+      "parent": {
+        "args": [
+          "C:\\Windows\\SYSTEM32\\cmd.exe",
+          "/c",
+          "C:\\Acme\\Scripts\\Backup",
+          "SQL\\RunBackup.bat"
+        ],
+        "name": "cmd.exe",
+        "pid": 17964,
+        "args_count": 4,
+        "entity_id": "{AAAAAAAA-24FE-6AD9-D76A-010000001100}",
+        "executable": "C:\\Windows\\System32\\cmd.exe",
+        "command_line": "C:\\Windows\\SYSTEM32\\cmd.exe /c \"\"C:\\Acme\\Scripts\\Backup SQL\\RunBackup.bat\"\""
+      },
+      "pe": {
+        "file_version": "10.0.20348.1 (WinBuild.160101.0800)",
+        "product": "Microsoft® Windows® Operating System",
+        "imphash": "a8949f425f8427bf3f7e4a794ce5bb87",
+        "description": "ForFiles - Executes a command on selected files",
+        "original_file_name": "forfiles.exe",
+        "company": "Microsoft Corporation"
+      },
+      "name": "forfiles.exe",
+      "pid": 18808,
+      "working_directory": "C:\\Windows\\system32\\",
+      "args_count": 10,
+      "entity_id": "{AAAAAAAA-24FE-6AD9-D96A-010000001100}",
+      "hash": {
+        "sha256": "a59a4fc76a776ff9dac1169fb2109aee597cb4a7acaec7cfb2337aebe08b55f1",
+        "md5": "a35d2a64bca7fa5ffb31b263223c08d3"
+      },
+      "executable": "C:\\Windows\\System32\\forfiles.exe",
+      "command_line": "forfiles  -p \"C:\\SQL Backups\\Automatic\" -s -m *.* /D -3 /C \"cmd /c del @path\""
+    },
+    "winlog": {
+      "record_id": "74755",
+      "computer_name": "FS01",
+      "process": {
+        "pid": 21164,
+        "thread": {
+          "id": 18532
+        }
+      },
+      "task": "Process Create (rule: ProcessCreate)",
+      "event_id": "1",
+      "provider_guid": "{5770385F-C22A-43E0-BF4C-06F5698FFBD9}",
+      "channel": "Microsoft-Windows-Sysmon/Operational",
+      "event_data": {
+        "Company": "Microsoft Corporation",
+        "LogonGuid": "{AAAAAAAA-24FE-6AD9-0C4B-B15000000000}",
+        "Description": "ForFiles - Executes a command on selected files",
+        "TerminalSessionId": "0",
+        "IntegrityLevel": "High",
+        "Product": "Microsoft® Windows® Operating System",
+        "ParentUser": "FS01\\svc.backup",
+        "FileVersion": "10.0.20348.1 (WinBuild.160101.0800)",
+        "LogonId": "0x1234abcd"
+      },
+      "opcode": "Info",
+      "provider_name": "Microsoft-Windows-Sysmon",
+      "user": {
+        "identifier": "S-1-5-18",
+        "domain": "NT AUTHORITY",
+        "name": "SYSTEM",
+        "type": "User"
+      },
+      "version": 5
+    },
+    "log": {
+      "level": "information"
+    },
+    "elastic_agent": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "version": "9.5.2",
+      "snapshot": false
+    },
+    "message": "Process Create:\nRuleName: -\nUtcTime: 2026-10-21 20:47:58.641\nProcessGuid: {AAAAAAAA-24FE-6AD9-D96A-010000001100}\nProcessId: 18808\nImage: C:\\Windows\\System32\\forfiles.exe\nFileVersion: 10.0.20348.1 (WinBuild.160101.0800)\nDescription: ForFiles - Executes a command on selected files\nProduct: Microsoft® Windows® Operating System\nCompany: Microsoft Corporation\nOriginalFileName: forfiles.exe\nCommandLine: forfiles  -p \"C:\\SQL Backups\\Automatic\" -s -m *.* /D -3 /C \"cmd /c del @path\"\nCurrentDirectory: C:\\Windows\\system32\\\nUser: FS01\\svc.backup\nLogonGuid: {AAAAAAAA-24FE-6AD9-0C4B-B15000000000}\nLogonId: 0x1234abcd\nTerminalSessionId: 0\nIntegrityLevel: High\nHashes: MD5=A35D2A64BCA7FA5FFB31B263223C08D3,SHA256=A59A4FC76A776FF9DAC1169FB2109AEE597CB4A7ACAEC7CFB2337AEBE08B55F1,IMPHASH=A8949F425F8427BF3F7E4A794CE5BB87\nParentProcessGuid: {AAAAAAAA-24FE-6AD9-D76A-010000001100}\nParentProcessId: 17964\nParentImage: C:\\Windows\\System32\\cmd.exe\nParentCommandLine: C:\\Windows\\SYSTEM32\\cmd.exe /c \"\"C:\\Acme\\Scripts\\Backup SQL\\RunBackup.bat\"\"\nParentUser: FS01\\svc.backup",
+    "input": {
+      "type": "winlog"
+    },
+    "ecs": {
+      "version": "8.17.0"
+    },
+    "related": {
+      "user": [
+        "svc.backup"
+      ],
+      "hash": [
+        "a59a4fc76a776ff9dac1169fb2109aee597cb4a7acaec7cfb2337aebe08b55f1",
+        "a35d2a64bca7fa5ffb31b263223c08d3",
+        "a8949f425f8427bf3f7e4a794ce5bb87"
+      ]
+    },
+    "data_stream": {
+      "namespace": "default",
+      "type": "logs",
+      "dataset": "windows.sysmon_operational"
+    },
+    "host": {
+      "hostname": "FS01",
+      "os": {
+        "build": "20348.5761",
+        "kernel": "10.0.20348.5756 (WinBuild.160101.0800)",
+        "name": "Windows Server 2022 Standard",
+        "type": "windows",
+        "family": "windows",
+        "version": "10.0",
+        "platform": "windows"
+      },
+      "ip": [
+        "fe80::1",
+        "10.0.0.12"
+      ],
+      "name": "fs01",
+      "id": "00000000-0000-4000-8000-000000000003",
+      "mac": [
+        "00-00-5E-00-53-01"
+      ],
+      "architecture": "x86_64"
+    },
+    "event": {
+      "agent_id_status": "auth_metadata_missing",
+      "ingested": "2026-10-21T20:48:01Z",
+      "code": "1",
+      "provider": "Microsoft-Windows-Sysmon",
+      "created": "2026-10-21T20:48:00.115Z",
+      "action": "Process creation",
+      "category": [
+        "process"
+      ],
+      "type": [
+        "start"
+      ],
+      "dataset": "windows.sysmon_operational",
+      "module": "windows"
+    },
+    "user": {
+      "domain": "FS01",
+      "name": "svc.backup",
+      "id": "S-1-5-18"
+    },
+    "kibana.alert.original_data_stream.namespace": "default",
+    "kibana.alert.original_data_stream.type": "logs",
+    "kibana.alert.original_data_stream.dataset": "windows.sysmon_operational",
+    "kibana.alert.original_event.agent_id_status": "auth_metadata_missing",
+    "kibana.alert.original_event.ingested": "2026-10-21T20:48:01Z",
+    "kibana.alert.original_event.code": "1",
+    "kibana.alert.original_event.provider": "Microsoft-Windows-Sysmon",
+    "kibana.alert.original_event.created": "2026-10-21T20:48:00.115Z",
+    "kibana.alert.original_event.kind": "event",
+    "kibana.alert.original_event.action": "Process creation",
+    "kibana.alert.original_event.category": [
+      "process"
+    ],
+    "kibana.alert.original_event.type": [
+      "start"
+    ],
+    "kibana.alert.original_event.dataset": "windows.sysmon_operational",
+    "kibana.alert.original_event.module": "windows",
+    "event.kind": "signal",
+    "kibana.alert.original_time": "2026-10-21T20:47:58.641Z",
+    "kibana.alert.ancestors": [
+      {
+        "id": "2K04YKEBveACZgwBjMLZ",
+        "type": "event",
+        "index": ".ds-logs-windows.sysmon_operational-default-2026.10.03-000015",
+        "depth": 0
+      }
+    ],
+    "kibana.alert.status": "active",
+    "kibana.alert.workflow_status": "open",
+    "kibana.alert.depth": 1,
+    "kibana.alert.reason": "process event with process forfiles.exe, parent process cmd.exe, by svc.backup on fs01 created medium alert Command Execution via ForFiles.",
+    "kibana.alert.severity": "medium",
+    "kibana.alert.risk_score": 47,
+    "kibana.alert.rule.actions": [],
+    "kibana.alert.rule.author": [
+      "Elastic"
+    ],
+    "kibana.alert.rule.created_at": "2025-11-08T16:13:48.305Z",
+    "kibana.alert.rule.created_by": "elastic",
+    "kibana.alert.rule.description": "Detects attempts to execute a command via the forfiles Windows utility. Adversaries may use this utility to proxy execution via a trusted parent process.",
+    "kibana.alert.rule.enabled": true,
+    "kibana.alert.rule.exceptions_list": [
+      {
+        "id": "744bde89-a235-42f3-9baf-cc07eb5173d1",
+        "list_id": "6b1a1812-cb8f-4f90-b8ed-4b565440e185",
+        "type": "rule_default",
+        "namespace_type": "single"
+      }
+    ],
+    "kibana.alert.rule.false_positives": [],
+    "kibana.alert.rule.from": "now-9m",
+    "kibana.alert.rule.immutable": true,
+    "kibana.alert.rule.interval": "5m",
+    "kibana.alert.rule.indices": [
+      "endgame-*",
+      "logs-crowdstrike.fdr*",
+      "logs-endpoint.events.process-*",
+      "logs-m365_defender.event-*",
+      "logs-sentinel_one_cloud_funnel.*",
+      "logs-system.security*",
+      "logs-windows.forwarded*",
+      "logs-windows.sysmon_operational-*",
+      "winlogbeat-*"
+    ],
+    "kibana.alert.rule.license": "Elastic License v2",
+    "kibana.alert.rule.max_signals": 100,
+    "kibana.alert.rule.note": "## Triage and analysis\n\n### Investigating Command Execution via ForFiles\n\n### Possible investigation steps\n\n- Identify the user account that performed the action and whether it should perform this kind of action.\n- Contact the account owner and confirm whether they are aware of this activity.\n- Investigate other alerts associated with the user/host during the past 48 hours.\n- Validate the activity is not related to planned patches, updates, network administrator activity, or legitimate software installations.\n- Assess whether this behavior is prevalent in the environment by looking for similar occurrences across hosts.\n\n### False positive analysis\n\n- This is a dual-use tool, meaning its usage is not inherently malicious. Analysts can dismiss the alert if the administrator is aware of the activity, no other suspicious activity was identified.\n\n### Response and Remediation\n\n- Initiate the incident response process based on the outcome of the triage.\n- Isolate the involved host to prevent further post-compromise behavior.\n- Run a full antimalware scan. This may reveal additional artifacts left in the system, persistence mechanisms, and malware components.\n- Investigate credential exposure on systems compromised or used by the attacker to ensure all compromised accounts are identified. Reset passwords for these accounts and other potentially compromised credentials, such as email, business systems, and web services.\n- Determine the initial vector abused by the attacker and take action to prevent reinfection through the same vector.\n- Using the incident response data, update logging and audit policies to improve the mean time to detect (MTTD) and the mean time to respond (MTTR).\n",
+    "kibana.alert.rule.references": [
+      "https://lolbas-project.github.io/lolbas/Binaries/Forfiles/"
+    ],
+    "kibana.alert.rule.risk_score_mapping": [],
+    "kibana.alert.rule.rule_id": "3f7bd5ac-9711-44b4-82c1-fa246d829f15",
+    "kibana.alert.rule.severity_mapping": [],
+    "kibana.alert.rule.threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0005",
+          "name": "Defense Evasion",
+          "reference": "https://attack.mitre.org/tactics/TA0005/"
+        },
+        "technique": [
+          {
+            "id": "T1202",
+            "name": "Indirect Command Execution",
+            "reference": "https://attack.mitre.org/techniques/T1202/"
+          }
+        ]
+      }
+    ],
+    "kibana.alert.rule.timestamp_override": "event.ingested",
+    "kibana.alert.rule.to": "now",
+    "kibana.alert.rule.type": "eql",
+    "kibana.alert.rule.updated_at": "2026-03-16T09:46:56.027Z",
+    "kibana.alert.rule.updated_by": "elastic",
+    "kibana.alert.rule.version": 4,
+    "kibana.alert.url": "https://kibana.example.internal/app/security/alerts/redirect/43559810ea14f5291d6d58fb5cf7f94d8211d01ca6b0b9cfcb2dbcd5726e7bc3?index=.alerts-security.alerts-default&timestamp=2026-10-21T20:50:46.775Z",
+    "kibana.alert.uuid": "43559810ea14f5291d6d58fb5cf7f94d8211d01ca6b0b9cfcb2dbcd5726e7bc3",
+    "kibana.alert.workflow_tags": [],
+    "kibana.alert.workflow_assignee_ids": [],
+    "kibana.alert.rule.risk_score": 47,
+    "kibana.alert.rule.severity": "medium",
+    "kibana.alert.intended_timestamp": "2026-10-21T20:50:46.775Z",
+    "kibana.alert.rule.execution.type": "scheduled"
+  },
+  "fields": {
+    "process.hash.md5": [
+      "a35d2a64bca7fa5ffb31b263223c08d3"
+    ],
+    "kibana.alert.rule.references": [
+      "https://lolbas-project.github.io/lolbas/Binaries/Forfiles/"
+    ],
+    "kibana.alert.rule.updated_by": [
+      "elastic"
+    ],
+    "elastic_agent.version": [
+      "9.5.2"
+    ],
+    "host.os.name.text": [
+      "Windows Server 2022 Standard"
+    ],
+    "process.hash.sha256": [
+      "a59a4fc76a776ff9dac1169fb2109aee597cb4a7acaec7cfb2337aebe08b55f1"
+    ],
+    "host.hostname": [
+      "FS01"
+    ],
+    "signal.original_event.created": [
+      "2026-10-21T20:48:00.115Z"
+    ],
+    "host.mac": [
+      "00-00-5E-00-53-01"
+    ],
+    "winlog.process.pid": [
+      21164
+    ],
+    "kibana.alert.rule.threat.technique.id": [
+      "T1202"
+    ],
+    "signal.rule.enabled": [
+      "true"
+    ],
+    "host.os.version": [
+      "10.0"
+    ],
+    "signal.rule.max_signals": [
+      100
+    ],
+    "kibana.alert.risk_score": [
+      47
+    ],
+    "signal.rule.updated_at": [
+      "2026-03-16T09:46:56.027Z"
+    ],
+    "winlog.event_data.Company": [
+      "Microsoft Corporation"
+    ],
+    "host.os.type": [
+      "windows"
+    ],
+    "signal.original_event.code": [
+      "1"
+    ],
+    "kibana.alert.original_event.module": [
+      "windows"
+    ],
+    "signal.rule.references": [
+      "https://lolbas-project.github.io/lolbas/Binaries/Forfiles/"
+    ],
+    "kibana.alert.rule.interval": [
+      "5m"
+    ],
+    "kibana.alert.rule.type": [
+      "eql"
+    ],
+    "event.provider": [
+      "Microsoft-Windows-Sysmon"
+    ],
+    "kibana.alert.rule.immutable": [
+      "true"
+    ],
+    "kibana.alert.rule.exceptions_list.list_id": [
+      "6b1a1812-cb8f-4f90-b8ed-4b565440e185"
+    ],
+    "kibana.alert.rule.version": [
+      "4"
+    ],
+    "process.command_line.text": [
+      "forfiles  -p \"C:\\SQL Backups\\Automatic\" -s -m *.* /D -3 /C \"cmd /c del @path\""
+    ],
+    "winlog.event_data.Description": [
+      "ForFiles - Executes a command on selected files"
+    ],
+    "process.working_directory": [
+      "C:\\Windows\\system32\\"
+    ],
+    "process.entity_id": [
+      "{AAAAAAAA-24FE-6AD9-D96A-010000001100}"
+    ],
+    "host.ip": [
+      "fe80::1",
+      "10.0.0.12"
+    ],
+    "agent.type": [
+      "filebeat"
+    ],
+    "process.pe.original_file_name": [
+      "forfiles.exe"
+    ],
+    "process.executable.text": [
+      "C:\\Windows\\System32\\forfiles.exe"
+    ],
+    "signal.original_event.category": [
+      "process"
+    ],
+    "signal.rule.threat.framework": [
+      "MITRE ATT&CK"
+    ],
+    "host.id": [
+      "00000000-0000-4000-8000-000000000003"
+    ],
+    "elastic_agent.id": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "process.working_directory.text": [
+      "C:\\Windows\\system32\\"
+    ],
+    "kibana.alert.rule.indices": [
+      "endgame-*",
+      "logs-crowdstrike.fdr*",
+      "logs-endpoint.events.process-*",
+      "logs-m365_defender.event-*",
+      "logs-sentinel_one_cloud_funnel.*",
+      "logs-system.security*",
+      "logs-windows.forwarded*",
+      "logs-windows.sysmon_operational-*",
+      "winlogbeat-*"
+    ],
+    "signal.rule.updated_by": [
+      "elastic"
+    ],
+    "winlog.channel": [
+      "Microsoft-Windows-Sysmon/Operational"
+    ],
+    "host.os.platform": [
+      "windows"
+    ],
+    "kibana.alert.intended_timestamp": [
+      "2026-10-21T20:50:46.775Z"
+    ],
+    "kibana.alert.rule.severity": [
+      "medium"
+    ],
+    "winlog.opcode": [
+      "Info"
+    ],
+    "kibana.alert.rule.execution.timestamp": [
+      "2026-10-21T20:50:49.634Z"
+    ],
+    "signal.rule.threat.technique.reference": [
+      "https://attack.mitre.org/techniques/T1202/"
+    ],
+    "kibana.version": [
+      "9.3.0"
+    ],
+    "winlog.event_data.TerminalSessionId": [
+      "0"
+    ],
+    "signal.ancestors.type": [
+      "event"
+    ],
+    "user.name.text": [
+      "svc.backup"
+    ],
+    "winlog.event_data.LogonId": [
+      "0x1234abcd"
+    ],
+    "kibana.alert.ancestors.id": [
+      "2K04YKEBveACZgwBjMLZ"
+    ],
+    "process.name.text": [
+      "forfiles.exe"
+    ],
+    "kibana.alert.original_data_stream.namespace": [
+      "default"
+    ],
+    "kibana.alert.original_event.code": [
+      "1"
+    ],
+    "kibana.alert.rule.description": [
+      "Detects attempts to execute a command via the forfiles Windows utility. Adversaries may use this utility to proxy execution via a trusted parent process."
+    ],
+    "related.hash": [
+      "a59a4fc76a776ff9dac1169fb2109aee597cb4a7acaec7cfb2337aebe08b55f1",
+      "a35d2a64bca7fa5ffb31b263223c08d3",
+      "a8949f425f8427bf3f7e4a794ce5bb87"
+    ],
+    "winlog.computer_name": [
+      "FS01"
+    ],
+    "kibana.alert.rule.producer": [
+      "siem"
+    ],
+    "kibana.alert.rule.to": [
+      "now"
+    ],
+    "kibana.alert.original_event.ingested": [
+      "2026-10-21T20:48:01.000Z"
+    ],
+    "signal.rule.id": [
+      "503f6573-f4ab-4550-bbe4-8f487611f9c0"
+    ],
+    "signal.reason": [
+      "process event with process forfiles.exe, parent process cmd.exe, by svc.backup on fs01 created medium alert Command Execution via ForFiles."
+    ],
+    "signal.rule.risk_score": [
+      47
+    ],
+    "host.os.name": [
+      "Windows Server 2022 Standard"
+    ],
+    "log.level": [
+      "information"
+    ],
+    "signal.status": [
+      "open"
+    ],
+    "signal.rule.tags": [
+      "Domain: Endpoint",
+      "OS: Windows",
+      "Use Case: Threat Detection",
+      "Tactic: Defense Evasion",
+      "Data Source: Elastic Endgame",
+      "Data Source: Elastic Defend",
+      "Data Source: Windows Security Event Logs",
+      "Data Source: Microsoft Defender for Endpoint",
+      "Data Source: Sysmon",
+      "Data Source: SentinelOne",
+      "Data Source: Crowdstrike",
+      "Resources: Investigation Guide"
+    ],
+    "kibana.alert.rule.threat.tactic.name": [
+      "Defense Evasion"
+    ],
+    "kibana.alert.rule.uuid": [
+      "503f6573-f4ab-4550-bbe4-8f487611f9c0"
+    ],
+    "kibana.alert.original_event.category": [
+      "process"
+    ],
+    "signal.original_event.provider": [
+      "Microsoft-Windows-Sysmon"
+    ],
+    "process.name": [
+      "forfiles.exe"
+    ],
+    "process.parent.executable.text": [
+      "C:\\Windows\\System32\\cmd.exe"
+    ],
+    "kibana.alert.ancestors.index": [
+      ".ds-logs-windows.sysmon_operational-default-2026.10.03-000015"
+    ],
+    "process.pe.description": [
+      "ForFiles - Executes a command on selected files"
+    ],
+    "agent.version": [
+      "9.5.2"
+    ],
+    "host.os.family": [
+      "windows"
+    ],
+    "kibana.alert.rule.from": [
+      "now-9m"
+    ],
+    "kibana.alert.rule.parameters": [
+      {
+        "severity": "medium",
+        "max_signals": 100,
+        "rule_source": {
+          "type": "external",
+          "is_customized": false,
+          "customized_fields": [],
+          "has_base_version": true
+        },
+        "note": "## Triage and analysis\n\n### Investigating Command Execution via ForFiles\n\n### Possible investigation steps\n\n- Identify the user account that performed the action and whether it should perform this kind of action.\n- Contact the account owner and confirm whether they are aware of this activity.\n- Investigate other alerts associated with the user/host during the past 48 hours.\n- Validate the activity is not related to planned patches, updates, network administrator activity, or legitimate software installations.\n- Assess whether this behavior is prevalent in the environment by looking for similar occurrences across hosts.\n\n### False positive analysis\n\n- This is a dual-use tool, meaning its usage is not inherently malicious. Analysts can dismiss the alert if the administrator is aware of the activity, no other suspicious activity was identified.\n\n### Response and Remediation\n\n- Initiate the incident response process based on the outcome of the triage.\n- Isolate the involved host to prevent further post-compromise behavior.\n- Run a full antimalware scan. This may reveal additional artifacts left in the system, persistence mechanisms, and malware components.\n- Investigate credential exposure on systems compromised or used by the attacker to ensure all compromised accounts are identified. Reset passwords for these accounts and other potentially compromised credentials, such as email, business systems, and web services.\n- Determine the initial vector abused by the attacker and take action to prevent reinfection through the same vector.\n- Using the incident response data, update logging and audit policies to improve the mean time to detect (MTTD) and the mean time to respond (MTTR).\n",
+        "references": "https://lolbas-project.github.io/lolbas/Binaries/Forfiles/",
+        "risk_score": 47,
+        "author": "Elastic",
+        "query": "process where host.os.type == \"windows\" and event.type == \"start\" and\n (process.name : \"forfiles.exe\" or ?process.pe.original_file_name == \"forfiles.exe\") and process.args : (\"/c\", \"-c\")\n",
+        "description": "Detects attempts to execute a command via the forfiles Windows utility. Adversaries may use this utility to proxy execution via a trusted parent process.",
+        "index": [
+          "endgame-*",
+          "logs-crowdstrike.fdr*",
+          "logs-endpoint.events.process-*",
+          "logs-m365_defender.event-*",
+          "logs-sentinel_one_cloud_funnel.*",
+          "logs-system.security*",
+          "logs-windows.forwarded*",
+          "logs-windows.sysmon_operational-*",
+          "winlogbeat-*"
+        ],
+        "language": "eql",
+        "type": "eql",
+        "version": 4,
+        "rule_id": "3f7bd5ac-9711-44b4-82c1-fa246d829f15",
+        "license": "Elastic License v2",
+        "required_fields": [
+          {
+            "name": "event.type",
+            "type": "keyword",
+            "ecs": true
+          },
+          {
+            "name": "host.os.type",
+            "type": "keyword",
+            "ecs": true
+          },
+          {
+            "name": "process.args",
+            "type": "keyword",
+            "ecs": true
+          },
+          {
+            "name": "process.name",
+            "type": "keyword",
+            "ecs": true
+          },
+          {
+            "name": "process.pe.original_file_name",
+            "type": "keyword",
+            "ecs": true
+          }
+        ],
+        "immutable": true,
+        "exceptions_list": {
+          "id": "744bde89-a235-42f3-9baf-cc07eb5173d1",
+          "list_id": "6b1a1812-cb8f-4f90-b8ed-4b565440e185",
+          "type": "rule_default",
+          "namespace_type": "single"
+        },
+        "related_integrations": [
+          {
+            "package": "endpoint",
+            "version": "^8.2.0"
+          },
+          {
+            "package": "windows",
+            "version": "^3.0.0"
+          },
+          {
+            "package": "system",
+            "version": "^2.0.0"
+          },
+          {
+            "package": "m365_defender",
+            "version": "^3.0.0"
+          },
+          {
+            "package": "sentinel_one_cloud_funnel",
+            "version": "^1.0.0"
+          },
+          {
+            "package": "crowdstrike",
+            "version": "^2.0.0"
+          }
+        ],
+        "timestamp_override": "event.ingested",
+        "setup": "",
+        "from": "now-9m",
+        "threat": {
+          "framework": "MITRE ATT&CK",
+          "tactic": {
+            "id": "TA0005",
+            "name": "Defense Evasion",
+            "reference": "https://attack.mitre.org/tactics/TA0005/"
+          },
+          "technique": [
+            {
+              "id": "T1202",
+              "name": "Indirect Command Execution",
+              "reference": "https://attack.mitre.org/techniques/T1202/"
+            }
+          ]
+        },
+        "to": "now"
+      }
+    ],
+    "kibana.alert.rule.threat.tactic.id": [
+      "TA0005"
+    ],
+    "signal.original_event.kind": [
+      "event"
+    ],
+    "kibana.alert.rule.threat.technique.name": [
+      "Indirect Command Execution"
+    ],
+    "winlog.event_data.ParentUser": [
+      "FS01\\svc.backup"
+    ],
+    "signal.depth": [
+      1
+    ],
+    "signal.rule.immutable": [
+      "true"
+    ],
+    "process.parent.name.text": [
+      "cmd.exe"
+    ],
+    "host.os.build": [
+      "20348.5761"
+    ],
+    "signal.rule.name": [
+      "Command Execution via ForFiles"
+    ],
+    "event.module": [
+      "windows"
+    ],
+    "host.os.kernel": [
+      "10.0.20348.5756 (WinBuild.160101.0800)"
+    ],
+    "kibana.alert.rule.license": [
+      "Elastic License v2"
+    ],
+    "kibana.alert.original_event.kind": [
+      "event"
+    ],
+    "winlog.task": [
+      "Process Create (rule: ProcessCreate)"
+    ],
+    "winlog.user.domain": [
+      "NT AUTHORITY"
+    ],
+    "process.parent.command_line.text": [
+      "C:\\Windows\\SYSTEM32\\cmd.exe /c \"\"C:\\Acme\\Scripts\\Backup SQL\\RunBackup.bat\"\""
+    ],
+    "signal.rule.description": [
+      "Detects attempts to execute a command via the forfiles Windows utility. Adversaries may use this utility to proxy execution via a trusted parent process."
+    ],
+    "process.args": [
+      "forfiles",
+      "-p",
+      "C:\\SQL Backups\\Automatic",
+      "-s",
+      "-m",
+      "*.*",
+      "/D",
+      "-3",
+      "/C",
+      "cmd /c del @path"
+    ],
+    "message": [
+      "Process Create:\nRuleName: -\nUtcTime: 2026-10-21 20:47:58.641\nProcessGuid: {AAAAAAAA-24FE-6AD9-D96A-010000001100}\nProcessId: 18808\nImage: C:\\Windows\\System32\\forfiles.exe\nFileVersion: 10.0.20348.1 (WinBuild.160101.0800)\nDescription: ForFiles - Executes a command on selected files\nProduct: Microsoft® Windows® Operating System\nCompany: Microsoft Corporation\nOriginalFileName: forfiles.exe\nCommandLine: forfiles  -p \"C:\\SQL Backups\\Automatic\" -s -m *.* /D -3 /C \"cmd /c del @path\"\nCurrentDirectory: C:\\Windows\\system32\\\nUser: FS01\\svc.backup\nLogonGuid: {AAAAAAAA-24FE-6AD9-0C4B-B15000000000}\nLogonId: 0x1234abcd\nTerminalSessionId: 0\nIntegrityLevel: High\nHashes: MD5=A35D2A64BCA7FA5FFB31B263223C08D3,SHA256=A59A4FC76A776FF9DAC1169FB2109AEE597CB4A7ACAEC7CFB2337AEBE08B55F1,IMPHASH=A8949F425F8427BF3F7E4A794CE5BB87\nParentProcessGuid: {AAAAAAAA-24FE-6AD9-D76A-010000001100}\nParentProcessId: 17964\nParentImage: C:\\Windows\\System32\\cmd.exe\nParentCommandLine: C:\\Windows\\SYSTEM32\\cmd.exe /c \"\"C:\\Acme\\Scripts\\Backup SQL\\RunBackup.bat\"\"\nParentUser: FS01\\svc.backup"
+    ],
+    "kibana.alert.original_data_stream.type": [
+      "logs"
+    ],
+    "kibana.alert.rule.exceptions_list.namespace_type": [
+      "single"
+    ],
+    "kibana.space_ids": [
+      "default"
+    ],
+    "kibana.alert.severity": [
+      "medium"
+    ],
+    "signal.ancestors.depth": [
+      0
+    ],
+    "event.category": [
+      "process"
+    ],
+    "process.parent.command_line": [
+      "C:\\Windows\\SYSTEM32\\cmd.exe /c \"\"C:\\Acme\\Scripts\\Backup SQL\\RunBackup.bat\"\""
+    ],
+    "process.parent.name": [
+      "cmd.exe"
+    ],
+    "process.parent.pid": [
+      17964
+    ],
+    "kibana.alert.rule.tags": [
+      "Domain: Endpoint",
+      "OS: Windows",
+      "Use Case: Threat Detection",
+      "Tactic: Defense Evasion",
+      "Data Source: Elastic Endgame",
+      "Data Source: Elastic Defend",
+      "Data Source: Windows Security Event Logs",
+      "Data Source: Microsoft Defender for Endpoint",
+      "Data Source: Sysmon",
+      "Data Source: SentinelOne",
+      "Data Source: Crowdstrike",
+      "Resources: Investigation Guide"
+    ],
+    "kibana.alert.reason.text": [
+      "process event with process forfiles.exe, parent process cmd.exe, by svc.backup on fs01 created medium alert Command Execution via ForFiles."
+    ],
+    "kibana.alert.ancestors.depth": [
+      0
+    ],
+    "agent.name": [
+      "FS01"
+    ],
+    "event.agent_id_status": [
+      "auth_metadata_missing"
+    ],
+    "user.id": [
+      "S-1-5-18"
+    ],
+    "input.type": [
+      "winlog"
+    ],
+    "process.pe.product": [
+      "Microsoft® Windows® Operating System"
+    ],
+    "related.user": [
+      "svc.backup"
+    ],
+    "host.architecture": [
+      "x86_64"
+    ],
+    "kibana.alert.start": [
+      "2026-10-21T20:50:49.634Z"
+    ],
+    "event.code": [
+      "1"
+    ],
+    "kibana.alert.original_event.type": [
+      "start"
+    ],
+    "winlog.event_data.FileVersion": [
+      "10.0.20348.1 (WinBuild.160101.0800)"
+    ],
+    "agent.id": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "signal.original_event.module": [
+      "windows"
+    ],
+    "signal.rule.from": [
+      "now-9m"
+    ],
+    "kibana.alert.rule.exceptions_list.type": [
+      "rule_default"
+    ],
+    "winlog.event_data.LogonGuid": [
+      "{AAAAAAAA-24FE-6AD9-0C4B-B15000000000}"
+    ],
+    "kibana.alert.rule.enabled": [
+      "true"
+    ],
+    "kibana.alert.ancestors.type": [
+      "event"
+    ],
+    "winlog.process.thread.id": [
+      18532
+    ],
+    "signal.ancestors.index": [
+      ".ds-logs-windows.sysmon_operational-default-2026.10.03-000015"
+    ],
+    "user.name": [
+      "svc.backup"
+    ],
+    "kibana.alert.original_data_stream.dataset": [
+      "windows.sysmon_operational"
+    ],
+    "elastic_agent.snapshot": [
+      false
+    ],
+    "user.domain": [
+      "FS01"
+    ],
+    "signal.original_event.type": [
+      "start"
+    ],
+    "kibana.alert.rule.note": [
+      "## Triage and analysis\n\n### Investigating Command Execution via ForFiles\n\n### Possible investigation steps\n\n- Identify the user account that performed the action and whether it should perform this kind of action.\n- Contact the account owner and confirm whether they are aware of this activity.\n- Investigate other alerts associated with the user/host during the past 48 hours.\n- Validate the activity is not related to planned patches, updates, network administrator activity, or legitimate software installations.\n- Assess whether this behavior is prevalent in the environment by looking for similar occurrences across hosts.\n\n### False positive analysis\n\n- This is a dual-use tool, meaning its usage is not inherently malicious. Analysts can dismiss the alert if the administrator is aware of the activity, no other suspicious activity was identified.\n\n### Response and Remediation\n\n- Initiate the incident response process based on the outcome of the triage.\n- Isolate the involved host to prevent further post-compromise behavior.\n- Run a full antimalware scan. This may reveal additional artifacts left in the system, persistence mechanisms, and malware components.\n- Investigate credential exposure on systems compromised or used by the attacker to ensure all compromised accounts are identified. Reset passwords for these accounts and other potentially compromised credentials, such as email, business systems, and web services.\n- Determine the initial vector abused by the attacker and take action to prevent reinfection through the same vector.\n- Using the incident response data, update logging and audit policies to improve the mean time to detect (MTTD) and the mean time to respond (MTTR).\n"
+    ],
+    "process.pe.file_version": [
+      "10.0.20348.1 (WinBuild.160101.0800)"
+    ],
+    "kibana.alert.rule.max_signals": [
+      100
+    ],
+    "signal.rule.author": [
+      "Elastic"
+    ],
+    "kibana.alert.rule.risk_score": [
+      47
+    ],
+    "signal.original_event.dataset": [
+      "windows.sysmon_operational"
+    ],
+    "signal.rule.threat.technique.id": [
+      "T1202"
+    ],
+    "winlog.user.name": [
+      "SYSTEM"
+    ],
+    "kibana.alert.rule.consumer": [
+      "siem"
+    ],
+    "kibana.alert.rule.category": [
+      "Event Correlation Rule"
+    ],
+    "event.action": [
+      "Process creation"
+    ],
+    "event.ingested": [
+      "2026-10-21T20:48:01.000Z"
+    ],
+    "process.pe.company": [
+      "Microsoft Corporation"
+    ],
+    "@timestamp": [
+      "2026-10-21T20:50:46.775Z"
+    ],
+    "kibana.alert.original_event.action": [
+      "Process creation"
+    ],
+    "kibana.alert.original_event.agent_id_status": [
+      "auth_metadata_missing"
+    ],
+    "data_stream.dataset": [
+      "windows.sysmon_operational"
+    ],
+    "signal.rule.timestamp_override": [
+      "event.ingested"
+    ],
+    "agent.ephemeral_id": [
+      "00000000-0000-4000-8000-000000000002"
+    ],
+    "kibana.alert.rule.execution.uuid": [
+      "0417c124-a878-48d0-8ff9-0df7c2eaa0a6"
+    ],
+    "kibana.alert.uuid": [
+      "43559810ea14f5291d6d58fb5cf7f94d8211d01ca6b0b9cfcb2dbcd5726e7bc3"
+    ],
+    "signal.rule.note": [
+      "## Triage and analysis\n\n### Investigating Command Execution via ForFiles\n\n### Possible investigation steps\n\n- Identify the user account that performed the action and whether it should perform this kind of action.\n- Contact the account owner and confirm whether they are aware of this activity.\n- Investigate other alerts associated with the user/host during the past 48 hours.\n- Validate the activity is not related to planned patches, updates, network administrator activity, or legitimate software installations.\n- Assess whether this behavior is prevalent in the environment by looking for similar occurrences across hosts.\n\n### False positive analysis\n\n- This is a dual-use tool, meaning its usage is not inherently malicious. Analysts can dismiss the alert if the administrator is aware of the activity, no other suspicious activity was identified.\n\n### Response and Remediation\n\n- Initiate the incident response process based on the outcome of the triage.\n- Isolate the involved host to prevent further post-compromise behavior.\n- Run a full antimalware scan. This may reveal additional artifacts left in the system, persistence mechanisms, and malware components.\n- Investigate credential exposure on systems compromised or used by the attacker to ensure all compromised accounts are identified. Reset passwords for these accounts and other potentially compromised credentials, such as email, business systems, and web services.\n- Determine the initial vector abused by the attacker and take action to prevent reinfection through the same vector.\n- Using the incident response data, update logging and audit policies to improve the mean time to detect (MTTD) and the mean time to respond (MTTR).\n"
+    ],
+    "signal.rule.threat.technique.name": [
+      "Indirect Command Execution"
+    ],
+    "signal.rule.license": [
+      "Elastic License v2"
+    ],
+    "kibana.alert.rule.rule_id": [
+      "3f7bd5ac-9711-44b4-82c1-fa246d829f15"
+    ],
+    "signal.rule.type": [
+      "eql"
+    ],
+    "winlog.provider_guid": [
+      "{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"
+    ],
+    "winlog.provider_name": [
+      "Microsoft-Windows-Sysmon"
+    ],
+    "kibana.alert.url": [
+      "https://kibana.example.internal/app/security/alerts/redirect/43559810ea14f5291d6d58fb5cf7f94d8211d01ca6b0b9cfcb2dbcd5726e7bc3?index=.alerts-security.alerts-default&timestamp=2026-10-21T20:50:46.775Z"
+    ],
+    "process.pid": [
+      18808
+    ],
+    "signal.rule.created_by": [
+      "elastic"
+    ],
+    "signal.rule.interval": [
+      "5m"
+    ],
+    "kibana.alert.rule.created_by": [
+      "elastic"
+    ],
+    "kibana.alert.rule.timestamp_override": [
+      "event.ingested"
+    ],
+    "process.parent.entity_id": [
+      "{AAAAAAAA-24FE-6AD9-D76A-010000001100}"
+    ],
+    "winlog.record_id": [
+      "74755"
+    ],
+    "kibana.alert.rule.name": [
+      "Command Execution via ForFiles"
+    ],
+    "host.name": [
+      "fs01"
+    ],
+    "kibana.alert.rule.threat.technique.reference": [
+      "https://attack.mitre.org/techniques/T1202/"
+    ],
+    "event.kind": [
+      "signal"
+    ],
+    "winlog.version": [
+      5
+    ],
+    "signal.rule.created_at": [
+      "2025-11-08T16:13:48.305Z"
+    ],
+    "kibana.alert.workflow_status": [
+      "open"
+    ],
+    "kibana.alert.original_event.created": [
+      "2026-10-21T20:48:00.115Z"
+    ],
+    "kibana.alert.reason": [
+      "process event with process forfiles.exe, parent process cmd.exe, by svc.backup on fs01 created medium alert Command Execution via ForFiles."
+    ],
+    "signal.rule.threat.tactic.id": [
+      "TA0005"
+    ],
+    "process.parent.args_count": [
+      4
+    ],
+    "data_stream.type": [
+      "logs"
+    ],
+    "signal.ancestors.id": [
+      "2K04YKEBveACZgwBjMLZ"
+    ],
+    "signal.original_time": [
+      "2026-10-21T20:47:58.641Z"
+    ],
+    "ecs.version": [
+      "8.17.0"
+    ],
+    "signal.rule.severity": [
+      "medium"
+    ],
+    "event.created": [
+      "2026-10-21T20:48:00.115Z"
+    ],
+    "kibana.alert.depth": [
+      1
+    ],
+    "kibana.alert.rule.revision": [
+      1
+    ],
+    "signal.rule.version": [
+      "4"
+    ],
+    "kibana.alert.status": [
+      "active"
+    ],
+    "kibana.alert.last_detected": [
+      "2026-10-21T20:50:49.634Z"
+    ],
+    "kibana.alert.original_event.dataset": [
+      "windows.sysmon_operational"
+    ],
+    "winlog.user.type": [
+      "User"
+    ],
+    "kibana.alert.rule.rule_type_id": [
+      "siem.eqlRule"
+    ],
+    "kibana.alert.original_event.provider": [
+      "Microsoft-Windows-Sysmon"
+    ],
+    "signal.rule.rule_id": [
+      "3f7bd5ac-9711-44b4-82c1-fa246d829f15"
+    ],
+    "signal.rule.threat.tactic.reference": [
+      "https://attack.mitre.org/tactics/TA0005/"
+    ],
+    "process.executable": [
+      "C:\\Windows\\System32\\forfiles.exe"
+    ],
+    "winlog.user.identifier": [
+      "S-1-5-18"
+    ],
+    "process.parent.executable": [
+      "C:\\Windows\\System32\\cmd.exe"
+    ],
+    "signal.rule.threat.tactic.name": [
+      "Defense Evasion"
+    ],
+    "kibana.alert.rule.threat.framework": [
+      "MITRE ATT&CK"
+    ],
+    "process.args_count": [
+      10
+    ],
+    "kibana.alert.rule.updated_at": [
+      "2026-03-16T09:46:56.027Z"
+    ],
+    "data_stream.namespace": [
+      "default"
+    ],
+    "winlog.event_data.IntegrityLevel": [
+      "High"
+    ],
+    "kibana.alert.rule.author": [
+      "Elastic"
+    ],
+    "winlog.event_id": [
+      "1"
+    ],
+    "kibana.alert.rule.threat.tactic.reference": [
+      "https://attack.mitre.org/tactics/TA0005/"
+    ],
+    "process.parent.args": [
+      "C:\\Windows\\SYSTEM32\\cmd.exe",
+      "/c",
+      "C:\\Acme\\Scripts\\Backup",
+      "SQL\\RunBackup.bat"
+    ],
+    "signal.original_event.action": [
+      "Process creation"
+    ],
+    "kibana.alert.rule.created_at": [
+      "2025-11-08T16:13:48.305Z"
+    ],
+    "process.pe.imphash": [
+      "a8949f425f8427bf3f7e4a794ce5bb87"
+    ],
+    "signal.rule.to": [
+      "now"
+    ],
+    "event.type": [
+      "start"
+    ],
+    "process.command_line": [
+      "forfiles  -p \"C:\\SQL Backups\\Automatic\" -s -m *.* /D -3 /C \"cmd /c del @path\""
+    ],
+    "kibana.alert.rule.execution.type": [
+      "scheduled"
+    ],
+    "winlog.event_data.Product": [
+      "Microsoft® Windows® Operating System"
+    ],
+    "kibana.alert.rule.exceptions_list.id": [
+      "744bde89-a235-42f3-9baf-cc07eb5173d1"
+    ],
+    "event.dataset": [
+      "windows.sysmon_operational"
+    ],
+    "kibana.alert.original_time": [
+      "2026-10-21T20:47:58.641Z"
+    ]
+  }
+}

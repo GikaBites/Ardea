@@ -1,0 +1,249 @@
+# Ardea: fetcher, worker, publisher + Postgres. Optional profiles: "search" (SearXNG) and
+# "egress" (squid allowlisting proxy for Brave / ntfy.sh).
+# Each service gets only the secrets it needs, the DB has no published port, and the publisher binds
+# to localhost by default. docker-compose.dev.yml adds live source mounts for development.
+
+x-logging: &logging
+  driver: "json-file"
+  options: { max-size: "10m", max-file: "5" }
+
+x-db-env: &db-env
+  TZ: ${TZ:-UTC}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  POSTGRES_HOST: db
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: Ardea_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # ports: ["127.0.0.1:5432:5432"]   # only for local inspection; never 0.0.0.0
+    networks: [internal]
+    logging: *logging
+
+  fetcher:
+    build: ./fetcher
+    container_name: Ardea_fetcher
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+      # One SIEM via .env (below), or several via siems/siems.json (overrides these when present)
+      ELASTIC_URL: ${ELASTIC_URL:-}
+      ELASTIC_FETCHER_API_KEY: ${ELASTIC_FETCHER_API_KEY:-}   # read-only, alerts index only
+      KIBANA_BASE_URL: ${KIBANA_BASE_URL:-}
+      SIEM_NAME: ${SIEM_NAME:-Elastic}
+      FETCH_INTERVAL_SECONDS: ${FETCH_INTERVAL_SECONDS:-180}
+      FETCH_OVERLAP_MINUTES: ${FETCH_OVERLAP_MINUTES:-10}
+      FETCH_INITIAL_LOOKBACK_HOURS: ${FETCH_INITIAL_LOOKBACK_HOURS:-12}
+      DEDUP_WINDOW_HOURS: ${DEDUP_WINDOW_HOURS:-24}
+      ELASTIC_CA_CERT: ${ELASTIC_CA_CERT:-}
+    volumes:
+      - ./siems:/app/siems:ro            # siems.json (+ CA certificates) for several SIEMs
+    depends_on: { db: { condition: service_healthy } }
+    networks: [internal, lan]
+    logging: *logging
+
+  worker:
+    build: ./worker
+    container_name: Ardea_worker
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+      # One SIEM via .env (below), or several via siems/siems.json (overrides these when present)
+      ELASTIC_URL: ${ELASTIC_URL:-}
+      ELASTIC_WORKER_API_KEY: ${ELASTIC_WORKER_API_KEY:-}     # read-only, alerts + logs-*
+      ELASTIC_CA_CERT: ${ELASTIC_CA_CERT:-}
+      SIEM_NAME: ${SIEM_NAME:-Elastic}
+      LLM_URL: ${LLM_URL}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:14b}
+      LLM_NUM_CTX: ${LLM_NUM_CTX:-24576}
+      LLM_THINK: ${LLM_THINK:-}
+      LLM_NUM_PREDICT: ${LLM_NUM_PREDICT:-2048}
+      LLM_SEED: ${LLM_SEED:-42}
+      LLM_KEEP_ALIVE: ${LLM_KEEP_ALIVE:--1}
+      LLM_UNAVAILABLE_BACKOFF_SECONDS: ${LLM_UNAVAILABLE_BACKOFF_SECONDS:-30}
+      LLM_NUM_THREAD: ${LLM_NUM_THREAD:-0}
+      # Budgets. CPU-only inference needs the generous values.
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-900}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-8}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-10}
+      AGENT_MAX_WALL_SECONDS: ${AGENT_MAX_WALL_SECONDS:-1200}
+      AGENT_MAX_WEB_SEARCHES: ${AGENT_MAX_WEB_SEARCHES:-3}
+      TOOL_RESULT_MAX_CHARS: ${TOOL_RESULT_MAX_CHARS:-3500}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
+      WORKER_LEASE_MINUTES: ${WORKER_LEASE_MINUTES:-40}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
+      VERIFY_CLOSURES: ${VERIFY_CLOSURES:-true}
+      FEEDBACK_EXAMPLES: ${FEEDBACK_EXAMPLES:-3}
+      MIN_CONFIDENCE_TO_CLOSE: ${MIN_CONFIDENCE_TO_CLOSE:-70}
+      # Notifications (see README "True Positive notifications")
+      NOTIFY_CHANNELS: ${NOTIFY_CHANNELS:-}
+      NOTIFY_VERDICTS: ${NOTIFY_VERDICTS:-True Positive}
+      NOTIFY_MIN_SEVERITY: ${NOTIFY_MIN_SEVERITY:-Informational}
+      NOTIFY_DETAIL: ${NOTIFY_DETAIL:-full}
+      NOTIFY_MAX_ATTEMPTS: ${NOTIFY_MAX_ATTEMPTS:-8}
+      ARDEA_PUBLIC_URL: ${ARDEA_PUBLIC_URL:-}
+      KIBANA_BASE_URL: ${KIBANA_BASE_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TO: ${SMTP_TO:-}
+      NTFY_URL: ${NTFY_URL:-https://ntfy.sh}
+      NTFY_TOPIC: ${NTFY_TOPIC:-}
+      NTFY_TOKEN: ${NTFY_TOKEN:-}
+      NTFY_PROXY: ${NTFY_PROXY:-}
+      # Pro integrations (README "Integrations")
+      NOTIFY_PROXY: ${NOTIFY_PROXY:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL:-}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      JIRA_URL: ${JIRA_URL:-}
+      JIRA_USER: ${JIRA_USER:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECT: ${JIRA_PROJECT:-}
+      JIRA_ISSUE_TYPE: ${JIRA_ISSUE_TYPE:-Task}
+      THEHIVE_URL: ${THEHIVE_URL:-}
+      THEHIVE_API_KEY: ${THEHIVE_API_KEY:-}
+      # Pro scheduled reports (README "Reports and insights")
+      ARDEA_REPORTS: ${ARDEA_REPORTS:-off}
+      ARDEA_REPORT_TO: ${ARDEA_REPORT_TO:-}
+      ARDEA_MINUTES_PER_ALERT: ${ARDEA_MINUTES_PER_ALERT:-10}
+      ARDEA_BRAND_NAME: ${ARDEA_BRAND_NAME:-}
+      # Web search (see README "Enabling web search safely")
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-disabled}
+      WEB_SEARCH_DRY_RUN: ${WEB_SEARCH_DRY_RUN:-false}
+      WEB_SEARCH_KINDS: ${WEB_SEARCH_KINDS:-ip,domain,hash,cve,mitre,filename}
+      WEB_SEARCH_PER_HOUR: ${WEB_SEARCH_PER_HOUR:-60}
+      WEB_SEARCH_PER_DAY: ${WEB_SEARCH_PER_DAY:-500}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      SEARXNG_URL: ${SEARXNG_URL:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_CSE_ID: ${GOOGLE_CSE_ID:-}
+      EGRESS_PROXY: ${EGRESS_PROXY:-}
+      INTERNAL_DOMAINS: ${INTERNAL_DOMAINS:-local,lan,corp,internal}
+      SENSITIVE_TERMS: ${SENSITIVE_TERMS:-}
+      # Edition (README "Editions"). Empty = Community.
+      ARDEA_LICENSE_KEY: ${ARDEA_LICENSE_KEY:-}
+      ARDEA_LICENSE_PROXY: ${ARDEA_LICENSE_PROXY:-}
+    volumes:
+      - ./worker/playbooks.yaml:/app/playbooks.yaml:ro    # edit playbooks without rebuilding (hot-reloaded)
+      - ./siems:/app/siems:ro            # siems.json (+ CA certificates) for several SIEMs
+      - ./packs:/app/packs:ro            # Ardea playbook pack (*.ardpack), Pro / MSP
+      - ./license:/app/license:ro        # offline licence file (ardea.license), if you have one
+    depends_on: { db: { condition: service_healthy } }
+    extra_hosts: ["host.docker.internal:host-gateway"]   # LLM_URL=http://host.docker.internal:11434 if Ollama runs on the host
+    networks: [internal, lan]
+    logging: *logging
+
+  publisher:
+    build: ./publisher
+    container_name: Ardea_publisher
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+      KIBANA_BASE_URL: ${KIBANA_BASE_URL:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-480}
+      SESSION_MAX_HOURS: ${SESSION_MAX_HOURS:-24}
+      MAX_FAILED_LOGINS: ${MAX_FAILED_LOGINS:-5}
+      LOCKOUT_MINUTES: ${LOCKOUT_MINUTES:-15}
+      ARDEA_SSO: ${ARDEA_SSO:-false}          # Pro / MSP; also needs forward_auth in caddy/Caddyfile
+      ARDEA_BRAND_NAME: ${ARDEA_BRAND_NAME:-}  # MSP; logo: branding/logo.png|jpg|webp
+      ARDEA_MINUTES_PER_ALERT: ${ARDEA_MINUTES_PER_ALERT:-10}   # Insights: time-saved estimate
+    volumes:
+      - ./branding:/app/branding:ro
+    # No published port: only reachable through the caddy HTTPS proxy.
+    depends_on: { db: { condition: service_healthy } }
+    networks: [internal, frontend]
+
+  # HTTPS front end for the UI (caddy/Caddyfile). Redirects HTTP to HTTPS.
+  caddy:
+    image: caddy:2.11.6-alpine@sha256:d44355d3c2149dc580ce2cac735955d1c08d3d00882c30489c241aa51a5c10d9
+    container_name: Ardea_caddy
+    restart: unless-stopped
+    environment:
+      ARDEA_SITE_ADDRESS: ${ARDEA_SITE_ADDRESS:-localhost}
+      ARDEA_DEFAULT_SNI: ${ARDEA_DEFAULT_SNI:-localhost}
+      ARDEA_TLS: ${ARDEA_TLS:-internal}
+      ARDEA_HSTS_SECONDS: ${ARDEA_HSTS_SECONDS:-0}
+    ports:
+      - "${ARDEA_HTTP_BIND:-80}:80"
+      - "${ARDEA_HTTPS_BIND:-443}:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [publisher]
+    networks: [frontend]
+    logging: *logging
+
+  # Optional, recommended once web search is enabled: the only route to the internet.
+  # Run with:  docker compose --profile egress up -d   and set EGRESS_PROXY=http://egress-proxy:3128
+  # The worker reaches it over `internal`; only the proxy sits on `egress` (the internet side).
+  # Pair it with egress-proxy/firewall.sh so the `lan` network cannot bypass it.
+  egress-proxy:
+    image: ubuntu/squid:latest   # pin to a digest in production (docker inspect --format "{{index .RepoDigests 0}}")
+    container_name: Ardea_egress_proxy
+    profiles: ["egress"]
+    restart: unless-stopped
+    volumes:
+      - ./egress-proxy/squid.conf:/etc/squid/squid.conf:ro
+    networks: [internal, egress]
+    logging: *logging
+
+  # Free self-hosted meta-search for web_search (WEB_SEARCH_PROVIDER=searxng, SEARXNG_URL=http://searxng:8080).
+  # No published port: only containers on `internal` (the worker) can query it; only it goes out via `egress`.
+  searxng:
+    image: searxng/searxng:2026.10.19-d47cb96bf@sha256:d81e14a4328ba7a57f297dff0472be629d30bf29580406c0d5b3bdab563c9bed
+    container_name: Ardea_searxng
+    profiles: ["search"]       # COMPOSE_PROFILES=search in .env (add ",egress" for the Brave proxy)
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    networks: [internal, egress]
+    logging: *logging
+
+networks:
+  internal:          # db <-> apps; no route out
+    internal: true
+  lan:               # Elastic + Ollama + SMTP on your LAN. Locked down by egress-proxy/firewall.sh.
+    ipam:
+      config: [{ subnet: "${ARDEA_LAN_SUBNET:-172.30.10.0/24}" }]
+  egress:            # internet side of the egress proxy only
+    ipam:
+      config: [{ subnet: "${ARDEA_EGRESS_SUBNET:-172.30.20.0/24}" }]
+  frontend:          # caddy <-> publisher, and the published HTTPS port
+
+volumes:
+  db_data:
+  caddy_data:        # Caddy's certificate authority and certificates
+  caddy_config:

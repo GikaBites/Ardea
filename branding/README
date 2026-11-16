@@ -1,0 +1,4 @@
+Own branding (MSP edition)
+
+Put your logo here as logo.png, logo.jpg or logo.webp (max 512 KB; SVG is not accepted) and set
+ARDEA_BRAND_NAME in .env. Then: docker compose up -d publisher

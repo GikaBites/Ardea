@@ -1,0 +1,43 @@
+# SearXNG for Ardea: a private, JSON-only meta-search backend for the worker's web_search tool.
+# Reachable only from the `internal` Docker network (no published port). The secret comes from
+# SEARXNG_SECRET in .env (never commit it).
+#
+# What leaves the network: the SANITISED query (worker/sanitize.py), sent by this container to the
+# engines below from your public IP. SearXNG does not log queries at the default log level.
+
+use_default_settings:
+  engines:
+    # Few engines = fewer third parties see the query. Google is left out: it CAPTCHA-blocks bots.
+    keep_only:
+      - duckduckgo
+      - bing
+      - brave
+      - wikipedia
+
+general:
+  instance_name: "Ardea"
+  debug: false
+  enable_metrics: false
+
+search:
+  safe_search: 2
+  autocomplete: ""
+  formats:
+    - json            # what Ardea uses
+    - html            # handy for a manual check from inside the network
+
+server:
+  base_url: "http://searxng:8080/"
+  secret_key: "set-SEARXNG_SECRET-in-.env"   # overridden by the SEARXNG_SECRET environment variable
+  limiter: false      # only our worker can reach it
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+ui:
+  static_use_hash: true
+
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 10.0
+  useragent_suffix: ""

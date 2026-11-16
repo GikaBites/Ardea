@@ -1,0 +1,61 @@
+# Ardea demo: the web UI with sample alerts. No Elastic, no Ollama, no .env needed.
+#
+#   docker compose -f docker-compose.demo.yml up -d --build
+#   open https://localhost:8443  (accept the browser warning: a local certificate)  ·  sign in as demo / demo
+#   docker compose -f docker-compose.demo.yml down -v      # stop and delete the demo data
+#
+# Separate from a real installation (own project name, volumes and containers) and reachable from this
+# computer only. The data is sample data; nothing here connects to a SIEM or an LLM.
+name: ardea-demo
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ardea_demo
+      POSTGRES_USER: ardea_demo
+      POSTGRES_PASSWORD: ardea_demo
+    volumes:
+      - demo_db:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ardea_demo -d ardea_demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  publisher:
+    build: ./publisher
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ardea_demo
+      POSTGRES_USER: ardea_demo
+      POSTGRES_PASSWORD: ardea_demo
+      ARDEA_DEMO: "true"
+      ARDEA_MINUTES_PER_ALERT: "10"
+    depends_on: { db: { condition: service_healthy } }
+    networks: [internal, frontend]
+
+  caddy:
+    image: caddy:2.11.6-alpine@sha256:d44355d3c2149dc580ce2cac735955d1c08d3d00882c30489c241aa51a5c10d9
+    environment:
+      ARDEA_SITE_ADDRESS: localhost
+      ARDEA_DEFAULT_SNI: localhost
+      ARDEA_TLS: internal
+    ports:
+      - "127.0.0.1:8443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - demo_caddy:/data
+    depends_on: [publisher]
+    networks: [frontend]
+
+networks:
+  internal:
+    internal: true
+  frontend:
+
+volumes:
+  demo_db:
+  demo_caddy:

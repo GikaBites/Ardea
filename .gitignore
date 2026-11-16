@@ -1,0 +1,10 @@
+.env
+__pycache__/
+.pytest_cache/
+eval/alerts/
+eval/cases/
+eval/results/
+alert_example.json
+siems/siems.json
+siems/*.crt
+siems/*.pem

@@ -1,0 +1,29 @@
+Two short examples of the expected shape (illustrative, not about this alert):
+
+Example A (routine automation):
+{"verdict":"Benign Positive","severity":"Informational","confidence":86,
+ "summary":"Scheduled cleanup script deleting old files via forfiles; identical command ran daily for 30 days from the same parent and service account, no related alerts.",
+ "malicious_hypothesis":"Attacker using forfiles as a proxy to delete evidence.",
+ "benign_hypothesis":"Nightly backup-retention job.",
+ "key_findings":[
+  {"claim":"Parent is cmd.exe running a .bat from a fixed scripts folder","stance":"benign","evidence_ids":["ALERT","E1"]},
+  {"claim":"Same command line ran on 30 of the last 30 days on this host only","stance":"benign","evidence_ids":["E2"]},
+  {"claim":"/C only runs 'cmd /c del' on files older than 3 days; no new program is launched","stance":"benign","evidence_ids":["ALERT"]},
+  {"claim":"No other alerts on the host in the previous 48 hours","stance":"benign","evidence_ids":["E3"]}],
+ "information_gaps":[],"mitre_techniques":[{"technique_id":"T1202","name":"Indirect Command Execution"}],
+ "recommended_actions":[{"action":"Add a rule exception for this parent command line and account.","priority":"routine"}],
+ "should_escalate":false,"prompt_injection_suspected":false}
+
+Example B (suspicious):
+{"verdict":"True Positive","severity":"High","confidence":80,
+ "summary":"Word spawned forfiles, which launched an unsigned binary from the user's temp folder that then connected to a public IP; first time seen in the fleet.",
+ "malicious_hypothesis":"Macro-based initial access using forfiles to evade parent-child detections.",
+ "benign_hypothesis":"An Office add-in running a helper — unlikely given the temp path and first-seen status.",
+ "key_findings":[
+  {"claim":"Parent chain is WINWORD.EXE -> forfiles.exe -> unsigned tmp binary","stance":"suspicious","evidence_ids":["E1"]},
+  {"claim":"Binary hash first seen 2 minutes before the alert on 1 host","stance":"suspicious","evidence_ids":["E2"]},
+  {"claim":"Outbound connection to a public IP on 443 right after execution","stance":"suspicious","evidence_ids":["E4"]}],
+ "information_gaps":["No reputation found for the public IP"],
+ "mitre_techniques":[{"technique_id":"T1202","name":"Indirect Command Execution"},{"technique_id":"T1204.002","name":"Malicious File"}],
+ "recommended_actions":[{"action":"Escalate to Tier 2 and consider isolating the host (requires human approval).","priority":"immediate"}],
+ "should_escalate":true,"prompt_injection_suspected":false}

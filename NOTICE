@@ -1,0 +1,19 @@
+Ardea
+Copyright 2026 Ardea
+
+The Ardea source code is licensed under the Elastic License 2.0 (see LICENSE).
+In short: you may use, copy and modify it, including inside your company, for free. You may not
+offer Ardea to third parties as a hosted or managed service, and you may not remove or get around
+the licence-key checks. Running Ardea for your own customers as an MSP needs the MSP edition,
+whose licence terms (EULA.md) grant that right.
+
+The Ardea playbook pack (*.ardpack) is not part of the source code. It is licensed only to Pro and
+MSP customers under EULA.md.
+
+Third-party components shipped in this repository:
+  * Bootstrap 5.3.3 (publisher/static/vendor/bootstrap.min.css) - MIT License, (c) The Bootstrap Authors
+  * Barlow, Chakra Petch, JetBrains Mono fonts (publisher/static/fonts/) - SIL Open Font License 1.1,
+    see the OFL-*.txt files next to them
+
+Python dependencies (installed at build time, not shipped here) keep their own licences; see the
+requirements.txt of each service.

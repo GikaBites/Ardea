@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Users · {{ product_name }}{% endblock %}
+{% macro siem_picker(siems, current, id_prefix) %}
+<div class="siem-picker" role="group" aria-label="SIEM access">
+	<input type="hidden" name="siem_picker" value="1" />
+	<label class="form-check form-check-inline m-0">
+		<input class="form-check-input" type="checkbox" name="siem_all" value="1" id="{{ id_prefix }}-all"
+			{% if current is none %}checked{% endif %} /> <strong>All SIEMs</strong>
+	</label>
+	{% for s in siems %}
+	<label class="form-check form-check-inline m-0">
+		<input class="form-check-input" type="checkbox" name="siem" value="{{ s.id }}"
+			{% if current is not none and s.id in current %}checked{% endif %} />
+		{{ s.name }}{% if not s.active %} <span class="text-secondary">(removed)</span>{% endif %}
+	</label>
+	{% endfor %}
+</div>
+{% endmacro %}
+{% macro siem_names(siems, current) -%}
+{%- if current is none %}All{% else %}{% set names = [] %}{% for i in current %}{% set match = siems | selectattr("id", "equalto", i) | list %}{% set _ = names.append(match[0].name if match else i) %}{% endfor %}{{ names | join(", ") }}{% endif -%}
+{%- endmacro %}
+{% block body %}
+{% set multi_siem = siems | length > 1 or users | selectattr("siem_access") | list %}
+<main class="users-page">
+	<h1 class="h5 mb-3">Users</h1>
+
+	{% if secret %}
+	<div class="alert alert-success">
+		{% if secret.action == "created" %}User <strong>{{ secret.username }}</strong> created.
+		{% else %}Password of <strong>{{ secret.username }}</strong> reset; their sessions were signed out.{% endif %}
+		One-time password: <code class="one-time-password">{{ secret.password }}</code><br />
+		Give it to the user over a secure channel. It is shown only now, and they must change it at their first login.
+	</div>
+	{% endif %}
+	{% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+
+	<div class="card shadow-sm mb-3 license-card">
+		<div class="card-body">
+			<h2 class="h6">Edition: <span class="license-edition license-edition--{{ license.edition }}">{{ {"community": "Community", "pro": "Pro", "msp": "MSP"}[license.edition] }}</span></h2>
+			<p class="mb-2 text-secondary small">
+				{% if license.source == "lemonsqueezy" %}Licence key{% if license.product %}: {{ license.product }}{% endif %}{% if license.customer %} · {{ license.customer }}{% endif %}
+				{% elif license.source == "offline" %}Offline licence{% if license.customer %} · {{ license.customer }}{% endif %}
+				{% else %}No licence: the free Community edition.{% endif %}
+				{% if license.edition != "community" and license.valid_until %} · valid until {{ license.valid_until | localtime }}{% endif %}
+				{% if license.last_ok_at %} · last confirmed {{ license.last_ok_at | localtime }}{% endif %}
+			</p>
+			{% if license.last_error %}<div class="alert alert-warning py-2 small mb-2">Licence check: {{ license.last_error }}</div>{% endif %}
+			<ul class="license-features small mb-0">
+				{% for name, on in license.features %}
+				<li class="{{ 'is-on' if on else 'is-off' }}">{{ {"notifications": "Notifications", "integrations": "Slack, Teams, webhook, Jira, TheHive", "playbook_pack": "Playbook pack", "eval_export": "Eval-case export", "sso": "Single sign-on", "reports": "Reports and insights", "tuning": "Rule-tuning advisor", "csv_export": "CSV export", "retriage": "Re-triage", "multi_siem": "Several SIEMs", "branding": "Own branding", "customer_reports": "Per-customer reports", "customer_routing": "Per-customer alert routing", "customer_context": "Per-customer facts and playbooks", "usage_export": "Usage export"}[name] }}: {{ "on" if on else "off" }}</li>
+				{% endfor %}
+			</ul>
+			{% if license.edition == "msp" %}<p class="small mt-2 mb-0"><a href="/admin/usage.csv">Download this month's usage per customer (CSV)</a></p>{% endif %}
+			{% if license.edition == "community" %}
+			<p class="small text-secondary mt-2 mb-0">Triage, every safety check and the audit trail work the same in every edition. Pro and MSP add the features above.</p>
+			{% endif %}
+		</div>
+	</div>
+	{% if message %}<div class="alert alert-info py-2">{{ message }}</div>{% endif %}
+
+	<div class="card shadow-sm mb-3">
+		<div class="card-body">
+			<h2 class="h6">New user</h2>
+			<form method="post" action="{{ url_for('users_create') }}" class="row g-2 align-items-end">
+				<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+				<div class="col-sm-5 col-lg-3">
+					<label class="form-label" for="new-username">Username</label>
+					<input class="form-control" id="new-username" name="username" required
+						pattern="[a-z0-9][a-z0-9._\-]{2,31}" autocapitalize="none" spellcheck="false"
+						title="3-32 characters: lowercase letters, digits, '.', '_' or '-'" />
+				</div>
+				<div class="col-sm-4 col-lg-2">
+					<label class="form-label" for="new-role">Role</label>
+					<select class="form-select" id="new-role" name="role">
+						<option value="viewer">Viewer</option>
+						<option value="analyst">Analyst</option>
+						<option value="admin">Admin</option>
+					</select>
+				</div>
+				{% if multi_siem %}
+				<div class="col-12 col-lg">
+					<span class="form-label d-block">Can see alerts from</span>
+					{{ siem_picker(siems, none, "new") }}
+				</div>
+				{% endif %}
+				<div class="col-auto">
+					<button type="submit" class="btn btn-primary">Create user</button>
+				</div>
+			</form>
+			<div class="form-text mt-2">
+				Viewers can see alerts and investigation trails. Analysts can also give feedback on verdicts.
+				Admins can also manage users{% if multi_siem %} and always see every SIEM; viewers and analysts see only the
+				SIEMs ticked here ("All SIEMs" includes SIEMs added later){% endif %}.
+				A one-time password is generated for every new user.
+			</div>
+		</div>
+	</div>
+
+	<div class="table-responsive mb-4">
+		<table class="table table-sm align-middle">
+			<thead>
+				<tr>
+					<th>User</th><th>Role</th>{% if multi_siem %}<th>SIEMs</th>{% endif %}<th>Status</th><th>Last login</th><th>Created</th><th>Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for u in users %}
+				{% set myself = u.id == g.user.user_id %}
+				<tr>
+					<td>{{ u.username }}{% if myself %} <span class="text-secondary">(you)</span>{% endif %}</td>
+					<td>
+						{% if myself %}{{ u.role | capitalize }}{% else %}
+						<form method="post" action="{{ url_for('users_role', user_id=u.id) }}" class="d-flex gap-1 m-0">
+							<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+							<select class="form-select form-select-sm" name="role" aria-label="Role of {{ u.username }}">
+								{% for r in roles %}<option value="{{ r }}" {% if r == u.role %}selected{% endif %}>{{ r | capitalize }}</option>{% endfor %}
+							</select>
+							<button type="submit" class="btn btn-sm btn-outline-secondary">Save</button>
+						</form>
+						{% endif %}
+					</td>
+					{% if multi_siem %}
+					<td>
+						{% if u.role == "admin" %}<span class="small">All <span class="text-secondary">(admin)</span></span>
+						{% else %}
+						<details class="siem-access">
+							<summary class="small">{{ siem_names(siems, u.siem_access) }}</summary>
+							<form method="post" action="{{ url_for('users_siems', user_id=u.id) }}" class="mt-1">
+								<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+								{{ siem_picker(siems, u.siem_access, "u" ~ u.id) }}
+								<button type="submit" class="btn btn-sm btn-outline-secondary mt-1">Save</button>
+								<div class="form-text">Saving signs {{ u.username }} out.</div>
+							</form>
+						</details>
+						{% endif %}
+					</td>
+					{% endif %}
+					<td>
+						{% if u.disabled %}<span class="badge text-bg-secondary">Disabled</span>
+						{% elif u.locked %}<span class="badge text-bg-warning">Locked</span>
+						{% else %}<span class="badge text-bg-success">Active</span>{% endif %}
+						{% if u.must_change_password %}<span class="badge text-bg-info">Must change password</span>{% endif %}
+					</td>
+					<td class="small">{{ u.last_login_at | localtime("%d/%m/%Y %H:%M") if u.last_login_at else "never" }}</td>
+					<td class="small">{{ u.created_at | localtime("%d/%m/%Y") }}{% if u.created_by %} by {{ u.created_by }}{% endif %}</td>
+					<td>
+						<div class="d-flex flex-wrap gap-1">
+							<form method="post" action="{{ url_for('users_reset', user_id=u.id) }}" class="m-0">
+								<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+								<button type="submit" class="btn btn-sm btn-outline-warning">Reset password</button>
+							</form>
+							{% if not myself %}
+							<form method="post" action="{{ url_for('users_status', user_id=u.id) }}" class="m-0">
+								<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+								<input type="hidden" name="disabled" value="{{ 'false' if u.disabled else 'true' }}" />
+								<button type="submit" class="btn btn-sm btn-outline-secondary">{{ "Enable" if u.disabled else "Disable" }}</button>
+							</form>
+							<details class="delete-user">
+								<summary class="btn btn-sm btn-outline-danger">Delete…</summary>
+								<form method="post" action="{{ url_for('users_delete', user_id=u.id) }}" class="d-flex gap-2 align-items-center mt-1">
+									<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+									<label class="small"><input type="checkbox" name="confirm" value="yes" required /> Delete {{ u.username }}</label>
+									<button type="submit" class="btn btn-sm btn-danger">Delete</button>
+								</form>
+							</details>
+							{% endif %}
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+
+	<h2 class="h6">Recent account activity</h2>
+	<div class="table-responsive">
+		<table class="table table-sm small">
+			<thead><tr><th>Time</th><th>User</th><th>Event</th><th>Target</th><th>IP</th><th>Detail</th></tr></thead>
+			<tbody>
+				{% for e in events %}
+				<tr>
+					<td>{{ e.created_at | localtime("%d/%m/%Y %H:%M:%S") }}</td>
+					<td>{{ e.actor or "" }}</td>
+					<td>{{ e.event | replace("_", " ") }}</td>
+					<td>{{ e.target or "" }}</td>
+					<td>{{ e.ip or "" }}</td>
+					<td>{{ e.detail or "" }}</td>
+				</tr>
+				{% else %}
+				<tr><td colspan="6" class="text-secondary">No activity yet.</td></tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+</main>
+{% endblock %}

@@ -1,0 +1,2 @@
+# Put your own certificate here as ardea.crt and ardea.key
+# and set ARDEA_TLS="/certs/ardea.crt /certs/ardea.key" in .env.

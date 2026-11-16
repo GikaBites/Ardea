@@ -1,0 +1,8 @@
+{
+  "_comment": "Written by the release kit (release.py set-key / set-store). Public values only: no secrets.",
+  "release_public_key": "",
+  "lemonsqueezy": {
+    "store_id": "",
+    "products": {}
+  }
+}

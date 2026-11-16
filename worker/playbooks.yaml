@@ -1,0 +1,154 @@
+# Rule-specific investigation playbooks.
+#
+# Matching order: rule_id (stable for Elastic prebuilt rules) -> exact rule name -> tactic -> default.
+#   enrichment:  pivots the WORKER runs before the LLM starts (no LLM decision needed, cheap).
+#                Placeholders: {host} {user} {process_entity_id} {parent_entity_id}
+#                              {executable} {process_name} {command_line} {sha256}
+#                              {service_executable} (program path of an installed Windows service)
+#                              {removable_drive} (drive letter of a newly mounted device, e.g. D:\)
+#   guidance:    shown to the model: which pivots to try first, what benign/malicious looks like.
+#   never_auto_close: verdict can never be FP/BP without a human.
+#   context:     environment facts the model may rely on (treated as trusted, written by you).
+
+default:
+  enrichment:
+    - {tool: get_related_alerts, args: {entity_type: host, value: "{host}", hours_before: 48, hours_after: 6}}
+    - {tool: get_baseline, args: {field: process.command_line, value: "{command_line}", days: 30}}
+  guidance: |
+    1. Decide if this is routine: check baseline (E2). Long, regular history with the same parent and
+       user on this host usually means automation — but still check the parent chain.
+    2. If the parent is unexpected (Office, browser, script host, remote-access tool) get the process tree.
+    3. If there is network activity or a public IP, check it and consider web_search on the public IP/domain.
+    4. Look at related alerts (E1) for multi-stage activity on the same host/user.
+
+by_tactic:
+  Credential Access:
+    never_auto_close: true
+    guidance: |
+      Credential access is high impact. Check process tree, other alerts for the user, and auth events
+      for the user in the following hours (lateral movement). Only a clearly authorised tool with a
+      long baseline can be Benign Positive — and a human must confirm.
+  Lateral Movement:
+    never_auto_close: true
+    guidance: |
+      Check auth events for the user (logon type 3/10, new source IPs) and related alerts on both hosts.
+  Persistence:
+    guidance: |
+      Identify WHAT is persisted (registry value data / task action / service binary) and whether it
+      is signed and has a baseline across the fleet. Get the process tree of the writer.
+
+by_rule_id:
+  # Command Execution via ForFiles
+  3f7bd5ac-9711-44b4-82c1-fa246d829f15:
+    enrichment:
+      - {tool: get_process_tree, args: {process_entity_id: "{process_entity_id}", depth_up: 3}}
+      - {tool: get_baseline, args: {field: process.command_line, value: "{command_line}", host: "{host}", days: 30}}
+      - {tool: get_related_alerts, args: {entity_type: host, value: "{host}", hours_before: 48, hours_after: 6}}
+    guidance: |
+      forfiles is widely used in backup/cleanup scripts ("forfiles -p <dir> -d -N -c 'cmd /c del @path'").
+      Benign: parent is cmd.exe running a .bat from a fixed admin/backup folder, scheduled-task or
+      service account, same command line seen daily in the baseline, /C runs del/echo/move on files.
+      Malicious: /C launches a NEW program (powershell, rundll32, mshta, regsvr32, a binary in a user
+      or temp folder), parent is an Office app/browser/script host, first seen recently, other alerts
+      on the host. For "cmd /c del" note it can also be used to wipe evidence — check WHAT is deleted.
+
+  # Uncommon Registry Persistence Change
+  54902e45-3467-49a4-8abc-529f2c8cfb80:
+    enrichment:
+      - {tool: get_process_tree, args: {process_entity_id: "{process_entity_id}", depth_up: 3}}
+      - {tool: get_related_alerts, args: {entity_type: host, value: "{host}"}}
+    guidance: |
+      registry.path shows which autostart location was changed and registry.data.strings the program
+      or command it points to. Use get_baseline on that executable with field=process.executable
+      (fleet-wide) and check its signature in the process events. Unsigned binaries in
+      AppData/Temp/ProgramData, script hosts (powershell, mshta, wscript, rundll32) or encoded commands
+      as the value are suspicious. Signed installers and updaters (Teams, OneDrive, Adobe, Zoom,
+      drivers) registering their own autostart entry are common.
+
+  # First Time Seen Removable Device
+  0859355c-0f08-4b43-8ff5-7d2a4789fc08:
+    enrichment:
+      - {tool: get_related_alerts, args: {entity_type: host, value: "{host}", hours_before: 24, hours_after: 6}}
+      - {tool: search_host_events, args: {host: "{host}", category: process, path_prefix: "{removable_drive}", minutes_before: 5, minutes_after: 240}}
+      - {tool: search_host_events, args: {host: "{host}", category: file, path_prefix: "{removable_drive}", minutes_before: 5, minutes_after: 240}}
+    guidance: |
+      The alert is a Windows registry write recording a new USB storage device. The process (WUDFHost.exe)
+      and user (LOCAL SERVICE / SYSTEM) are the Windows driver host, NOT the person who plugged it in, so
+      never judge the alert by them. registry.key holds the device vendor, product and serial
+      (USBSTOR#DISK&VEN_...&PROD_...) and registry.data.strings the drive letter it was given (e.g. D:\).
+      E2 = programs started from that drive and E3 = files written on it, in the 4 hours after it was
+      connected (both filtered to the drive letter). Decide on what happened with the drive:
+      Benign: a workstation, no program started from the drive, no or a few files written to it, no
+      other alerts on the host. Plugging in a USB drive is everyday activity. Benign Positive.
+      Suspicious: programs started from the drive (E2), especially scripts, .lnk, .exe or anything
+      autorun-like; many files written to the drive (E3, possible exfiltration), above all documents,
+      archives (.zip/.7z/.rar) or database/backup files; a server or domain controller instead of a
+      workstation; other alerts on the host. To see where copied files came from, use
+      search_host_events category=file without path_prefix around the time of the writes; to find the
+      logged-on user, use search_host_events category=authentication.
+      E2/E3 can be empty because nothing happened or because the endpoint does not log those events;
+      note that as an information gap. The low base risk still allows Benign Positive if nothing else is
+      suspicious.
+
+  # Suspicious Service was Installed in the System
+  da87eee1-129c-4661-a7aa-57d0b9645fad:
+    enrichment:
+      - {tool: get_baseline, args: {field: process.executable, value: "{service_executable}", days: 30}}
+      - {tool: search_host_events, args: {host: "{host}", category: process, minutes_before: 30, minutes_after: 30}}
+      - {tool: get_related_alerts, args: {entity_type: host, value: "{host}", hours_before: 48, hours_after: 6}}
+    guidance: |
+      The alert is Windows event 4697 (a service was installed). There are no process fields: the service
+      is described by service.name and winlog.event_data.ServiceFileName (the program and its arguments),
+      ServiceAccount, ServiceStartType (2 = automatic, 3 = manual) and ServiceType (0x10/0x20 = program,
+      0x1 = kernel driver). SubjectUserName is who installed it: a machine account (NAME$) means SYSTEM,
+      e.g. an installer or software update; a person's account may mean a remote install.
+      E1 is a fleet-wide baseline of the service program. E2 shows the processes around the install time:
+      look for the installer (msiexec.exe, a vendor setup or updater) and whether the program then ran.
+      Benign: program under C:\Program Files, C:\Program Files (x86) or C:\Windows\System32 with a
+      recognisable vendor name, installed by msiexec or a vendor updater, and the same program running on
+      several hosts in the baseline. A vendor component that installs itself repeatedly across the
+      fleet with the same path is routine. Benign Positive.
+      Suspicious: program in a user-writable path (\Users\, \AppData\, \Temp\, \ProgramData\,
+      \Windows\Temp\, \Users\Public\); cmd.exe, powershell, rundll32, regsvr32, mshta or %COMSPEC% in
+      ServiceFileName; a random-looking or misleading service name; a kernel driver outside
+      \Windows\System32\drivers; manual start type followed by an immediate start; installed by a
+      person's account around network logons (PsExec-style lateral movement: PSEXESVC, random 8-character
+      names); first seen on this host only. A temp-folder program is a strong True Positive signal.
+
+  # First Time Seen Commonly Abused Remote Access Tool Execution
+  6e1a2cc4-d260-11ed-8829-f661ea17fbcc:
+    enrichment:
+      - {tool: get_process_tree, args: {process_entity_id: "{process_entity_id}", depth_up: 3}}
+      - {tool: get_baseline, args: {field: process.name, value: "{process_name}", days: 30}}
+      - {tool: get_related_alerts, args: {entity_type: host, value: "{host}", hours_before: 48, hours_after: 6}}
+    guidance: |
+      A remote access tool (AnyDesk, TeamViewer, ScreenConnect, N-able Take Control, RustDesk, ...) ran
+      on this host for the first time. These tools are used both for legitimate IT support and by
+      intruders and ransomware operators for hands-on access, so decide on HOW it ran and what followed.
+      E2 is a fleet-wide baseline of the tool: many hosts with the same parent suggests a tool your IT
+      uses; a single host suggests a one-off.
+      Benign: installed under C:\Program Files or C:\Program Files (x86), signed by its vendor
+      (process.pe.company / code signature), started by explorer.exe from the logged-in user's own
+      session (user opened it for a support call), or by services.exe as an installed service of a
+      support tool that the baseline shows on other hosts; no other alerts. Benign Positive.
+      Suspicious: run from Downloads, Desktop, AppData, Temp, ProgramData or a renamed binary; started
+      by cmd/powershell/wscript/mshta, an Office app or a browser download; unattended-access or silent
+      install arguments (--install, --silent, --start-with-win, --set-password, --assignment); started by
+      SYSTEM on a server without an installer; the same tool appearing on several hosts within minutes;
+      other alerts on the host before or after (discovery, credential access, lateral movement,
+      defence evasion). Several of these together are a True Positive.
+
+by_rule_name:
+  Component Object Model Hijacking:
+    enrichment:
+      - {tool: get_process_tree, args: {process_entity_id: "{process_entity_id}", depth_up: 3}}
+    guidance: |
+      Check the DLL/EXE path written to InprocServer32/LocalServer32. HKCU writes pointing to user-
+      writable paths are suspicious; installers registering their own CLSIDs under HKLM are common.
+
+# Environment facts. Written by you, so trusted. Keep it short — it is sent with every alert.
+# Only put VERIFIED facts here — the model will rely on them. Examples (uncomment and edit):
+#  - "SQL backup scripts live under D:\\Scripts\\Backup on file servers and run as scheduled tasks."
+#  - "Accounts named svc_* are service accounts; interactive logons by them are abnormal."
+#  - "10.0.50.0/24 is the vulnerability-scanner subnet."
+context: []

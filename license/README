@@ -1,0 +1,4 @@
+Offline licence (only for installations without internet access)
+
+Put ardea.license here. Most installations do not need this: set ARDEA_LICENSE_KEY in .env instead.
+Check the result with:  docker compose exec worker python licensing.py

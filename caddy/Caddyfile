@@ -1,0 +1,47 @@
+# HTTPS front end for the Ardea UI. Plain HTTP on port 80 is redirected to HTTPS.
+#
+# ARDEA_SITE_ADDRESS  how users reach Ardea, comma-separated, e.g. "ardea.example.com, 192.168.1.20"
+# ARDEA_DEFAULT_SNI   the certificate to use when the browser sends no host name, which is always the case
+#                        when Ardea is opened by IP address: set it to that IP
+# ARDEA_TLS           "internal" (default): Caddy creates its own certificate authority and certificate.
+#                        Install its root certificate on the analysts' machines (see README).
+#                        Or "/certs/ardea.crt /certs/ardea.key" to use your own certificate from ./caddy/certs.
+{
+	admin off
+	skip_install_trust
+	default_sni {$ARDEA_DEFAULT_SNI:localhost}
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$ARDEA_SITE_ADDRESS:localhost} {
+	tls {$ARDEA_TLS:internal}
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age={$ARDEA_HSTS_SECONDS:0}"
+	}
+
+	# `route` keeps these steps in exactly this order.
+	route {
+		# Never accept the single sign-on header from a browser: only forward_auth below may set it.
+		request_header -X-Ardea-User
+
+		# Single sign-on (Ardea Pro / MSP): uncomment, point it at your identity provider's
+		# forward-auth endpoint, and set ARDEA_SSO=true in .env. Example for Authentik's embedded
+		# outpost; Authelia: uri /api/authz/forward-auth and copy_headers Remote-User>X-Ardea-User
+		# forward_auth https://authentik.example.com {
+		# 	uri /outpost.goauthentik.io/auth/caddy
+		# 	copy_headers X-Authentik-Username>X-Ardea-User
+		# 	trusted_proxies private_ranges
+		# }
+
+		reverse_proxy publisher:5000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="theme-color" content="#0b111c" />
+		<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/ardea-icon.svg') }}" />
+		{% if g.user %}<meta name="csrf-token" content="{{ g.user.csrf_token }}" />{% endif %}
+		<title>{% block title %}{{ product_name }}{% endblock %}</title>
+		<link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}" />
+		<link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css') }}" />
+		<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+	</head>
+	<body>
+		<nav class="ar-nav">
+			{% if brand %}
+			<a class="ar-brand" href="/" aria-label="{{ brand.name }} home">
+				{% if brand.logo %}<img class="ar-brand__logo" src="{{ url_for('brand_logo') }}" alt="" />{% endif %}
+				{{ brand.name }}
+				<span class="ar-brand__sub">triage</span>
+			</a>
+			{% else %}
+			<a class="ar-brand" href="/" aria-label="Ardea home">
+				<img class="ar-brand__mark" src="{{ url_for('static', filename='img/ardea-mark.svg') }}" alt="" />
+				Ardea
+				<span class="ar-brand__sub">triage</span>
+			</a>
+			{% endif %}
+			{% if g.user %}
+			<div class="ar-nav__links">
+				{% if not g.user.must_change_password %}
+				<a class="ar-nav__link {% if request.path == '/' %}is-active{% endif %}" href="/">Alerts</a>
+				<a class="ar-nav__link {% if request.path.startswith('/insights') %}is-active{% endif %}" href="/insights/report">Insights</a>
+				{% if g.user.role == "admin" %}
+				<a class="ar-nav__link {% if request.path.startswith('/admin') %}is-active{% endif %}" href="{{ url_for('users_page') }}">Users</a>
+				{% endif %}
+				{% endif %}
+			</div>
+			<div class="ar-nav__user">
+				<span class="ar-user">
+					<span class="ar-user__name">{{ g.user.username }}</span>
+					<span class="ar-role ar-role--{{ g.user.role }}">{{ g.user.role | capitalize }}</span>
+				</span>
+				<a class="ar-nav__link" href="{{ url_for('change_password') }}">Password</a>
+				<form method="post" action="{{ url_for('logout') }}" class="m-0">
+					<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+					<button type="submit" class="ar-nav__link ar-nav__button">Log out</button>
+				</form>
+			</div>
+			{% endif %}
+		</nav>
+		{% if demo_mode %}
+		<div class="ar-demo" role="note">Demo with sample alerts: verdicts and investigations are examples, not live results. All paid features are on. <a href="https://github.com/GikaBites/ardea#installation">Install Ardea on your own SIEM</a></div>
+		{% endif %}
+		{% block body %}{% endblock %}
+		{% block scripts %}{% endblock %}
+	</body>
+</html>

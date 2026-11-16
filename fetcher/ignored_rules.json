@@ -1,0 +1,10 @@
+{
+    "ignored": [
+        "Multiple Alerts in Different ATT&CK Tactics on a Single Host",
+	"Network Traffic to Rare Destination Country"
+    ],
+    "match": [
+        "Graylog",
+	"Service Terminations"
+    ]
+}
