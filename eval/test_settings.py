@@ -228,3 +228,14 @@ def test_compose_no_longer_hides_settings_behind_defaults():
     for f in A.FIELDS:
         assert f"{f.name}: ${{{f.name}:-}}" in text or f"{f.name}:" not in text, f.name
     assert "settings_keys:/app/keys" in text
+
+
+def test_notifications_use_the_msp_brand(monkeypatch):
+    import notifier
+    monkeypatch.setenv("ARDEA_BRAND_NAME", "Acme SOC")
+    p = notifier.build_payload({"alert_id": "a", "verdict": "True Positive", "severity": "High", "confidence": 90,
+                                "rule_name": "R", "hostname": "h", "summary": "s"})
+    licensing.set_tier("pro")
+    assert notifier._subject(p).startswith("[Ardea]")
+    licensing.set_tier("msp")
+    assert notifier._subject(p).startswith("[Acme SOC]")

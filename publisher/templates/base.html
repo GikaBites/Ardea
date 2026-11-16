@@ -4,7 +4,7 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="theme-color" content="#0b111c" />
-		<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/ardea-icon.svg') }}" />
+		{% if brand and brand.logo %}<link rel="icon" href="{{ url_for('brand_logo') }}" />{% else %}<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/ardea-icon.svg') }}" />{% endif %}
 		{% if g.user %}<meta name="csrf-token" content="{{ g.user.csrf_token }}" />{% endif %}
 		<title>{% block title %}{{ product_name }}{% endblock %}</title>
 		<link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}" />

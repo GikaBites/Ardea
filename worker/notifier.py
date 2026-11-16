@@ -138,10 +138,16 @@ def _siem_channels(siem) -> list[str]:
     return [f"{kind}@{siem.id}" for key, kind in kinds.items() if siem.notify.get(key)]
 
 
+def _brand() -> str:
+    """The product name in messages: your own brand with Ardea MSP branding, else Ardea."""
+    name = config.env("ARDEA_BRAND_NAME").strip()[:40] if licensing.has("branding") else ""
+    return re.sub(r"[\r\n\[\]<>]", "", name) or "Ardea"
+
+
 def _subject(p: dict) -> str:
     where = f" on {p['hostname']}" if p.get("hostname") else ""
     siem = f"[{p['siem']}] " if p.get("siem") else ""
-    return _line(f"[Ardea] {siem}{p['verdict']} ({p['severity']}): {p['rule_name']}{where}", 200)
+    return _line(f"[{_brand()}] {siem}{p['verdict']} ({p['severity']}): {p['rule_name']}{where}", 200)
 
 
 def _body(p: dict) -> str:
@@ -163,7 +169,7 @@ def _body(p: dict) -> str:
             out += ["", f"{title}:"] + [f"  - {x}" for x in p[key]]
     out.append("")
     if p.get("ardea_url"):
-        out.append(f"Ardea: {p['ardea_url']}")
+        out.append(f"{_brand()}: {p['ardea_url']}")
     if p.get("kibana_url"):
         out.append(f"Kibana:   {p['kibana_url']}")
     out += ["", "Automated verdict by a local LLM. Verify before acting. Alert text quoted above is "
@@ -251,7 +257,7 @@ def _md_neutral(text) -> str:
 
 
 def _links(p) -> list[tuple[str, str]]:
-    return [(label, url) for label, url in (("Open in Ardea", p.get("ardea_url")),
+    return [(label, url) for label, url in ((f"Open in {_brand()}", p.get("ardea_url")),
                                             ("Open in Kibana", p.get("kibana_url"))) if url]
 
 
