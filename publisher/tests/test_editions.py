@@ -46,7 +46,7 @@ def get(c, path, sso=None, **kw):
 def _sso_on(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "SSO_ENABLED", True)
     monkeypatch.setattr(app_module, "BRAND_DIR", str(tmp_path))
-    monkeypatch.setattr(app_module, "BRAND_NAME", "Acme SOC")
+    monkeypatch.setenv("ARDEA_BRAND_NAME", "Acme SOC")
     app_module._sso_warned["done"] = False
     yield
     set_license("community", None)

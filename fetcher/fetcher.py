@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+import appsettings
 import db
 import siems as siem_config
 
@@ -29,12 +30,28 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
                     format="%(asctime)s %(levelname)s fetcher %(message)s")
 log = logging.getLogger("fetcher")
 
-COOLDOWN = int(os.getenv("FETCH_INTERVAL_SECONDS", "180"))
-OVERLAP = timedelta(minutes=int(os.getenv("FETCH_OVERLAP_MINUTES", "10")))
-INITIAL_LOOKBACK = timedelta(hours=int(os.getenv("FETCH_INITIAL_LOOKBACK_HOURS", "12")))
+
+
+def _int(name, default):
+    """From .env, else the Settings page, else the default. Read each cycle, so changes apply without a restart."""
+    try:
+        return int(appsettings.env(name, str(default)))
+    except ValueError:
+        return default
+
+
+def cooldown() -> int:
+    return max(30, _int("FETCH_INTERVAL_SECONDS", 180))
+
+
+def dedup_window() -> timedelta:
+    return timedelta(hours=_int("DEDUP_WINDOW_HOURS", 24))
+
+
+OVERLAP = timedelta(minutes=_int("FETCH_OVERLAP_MINUTES", 10))
+INITIAL_LOOKBACK = timedelta(hours=_int("FETCH_INITIAL_LOOKBACK_HOURS", 12))
 PAGE_SIZE = 500
-DEDUP_WINDOW = timedelta(hours=int(os.getenv("DEDUP_WINDOW_HOURS", "24")))
-INCIDENT_WINDOW_MIN = int(os.getenv("INCIDENT_WINDOW_MINUTES", "120"))
+INCIDENT_WINDOW_MIN = _int("INCIDENT_WINDOW_MINUTES", 120)
 HEARTBEAT = pathlib.Path("/tmp/heartbeat")
 IGNORED_RULES_FILE = pathlib.Path(__file__).with_name("ignored_rules.json")
 _MIGRATION_LOCK = 7270020
@@ -111,11 +128,14 @@ def incident_key(src: dict, ts: datetime, siem_id: str = "") -> str:
 
 
 def load_ignored_rules() -> dict:
+    """ignored_rules.json plus the rules ignored on the Settings page."""
     try:
-        return json.loads(IGNORED_RULES_FILE.read_text())
+        rules = json.loads(IGNORED_RULES_FILE.read_text())
     except Exception as exc:  # a broken ignore file must not stop ingestion
         log.error("cannot read ignored_rules.json: %s", exc)
-        return {}
+        rules = {}
+    return {"ignored": list(rules.get("ignored", [])) + appsettings.lines("IGNORED_RULES"),
+            "match": list(rules.get("match", [])) + appsettings.lines("IGNORED_RULES_MATCH")}
 
 
 def is_rule_ignored(rule_name: str, rules: dict) -> bool:
@@ -241,7 +261,7 @@ def find_recent_duplicate(cur, siem_id: str, key: str, ts: datetime):
     (Same host name in two SIEMs is usually two different machines, so SIEMs never merge.)"""
     cur.execute("""SELECT alert_id FROM alerts
                    WHERE alert_hash = %s AND siem = %s AND timestamp >= %s AND status <> 'failed'
-                   ORDER BY timestamp DESC LIMIT 1""", (key, siem_id, ts - DEDUP_WINDOW))
+                   ORDER BY timestamp DESC LIMIT 1""", (key, siem_id, ts - dedup_window()))
     return cur.fetchone()
 
 
@@ -349,29 +369,79 @@ def run_once(configured) -> tuple[int, int]:
     return failed, len(configured)
 
 
-def run():
-    configured = siem_config.load()
-    if not configured:
-        raise SystemExit("no SIEM configured: create siems/siems.json (see siems/siems.example.json) "
-                         "or set ELASTIC_URL")
+def _settings_env() -> dict:
+    out = {}
+    if siem_config.file_path().is_file():
+        out["SIEMS_FILE"] = str(siem_config.file_path())
+    if appsettings.from_env("ELASTIC_URL"):
+        out["ELASTIC_URL"] = appsettings.from_env("ELASTIC_URL")
+    return out
+
+
+def load_siems() -> list:
+    """SIEMs to collect from: siems.json, else the Settings page, else .env. Those without a key are skipped."""
+    try:
+        configured = siem_config.load(ui_data=appsettings.siems_data())
+    except siem_config.SiemConfigError as exc:
+        log.error("SIEM configuration: %s", exc)
+        return []
     missing = [s.id for s in configured if not s.fetcher_api_key]
     if missing:
-        raise SystemExit(f"fetcher_api_key missing for SIEM(s): {', '.join(missing)}")
-    log.info("fetcher running, every %ss, SIEMs: %s", COOLDOWN,
-             ", ".join(f"{s.id} ({s.url}/{s.alerts_index})" for s in configured))
-    synced = False
+        log.error("fetcher API key missing for SIEM(s) %s: skipped", ", ".join(missing))
+    configured = [s for s in configured if s.fetcher_api_key]
+    if configured:
+        log.info("fetcher: every %ss, SIEMs: %s", cooldown(),
+                 ", ".join(f"{s.id} ({s.url}/{s.alerts_index})" for s in configured))
+    else:
+        log.warning("no SIEM configured yet: add one on the Settings page (or siems/siems.json, or ELASTIC_URL)")
+    return configured
+
+
+def _tick(settings) -> bool:
+    with db.get_connection() as conn:
+        changed = settings.tick(conn)
+        conn.commit()
+    return changed
+
+
+def _wait(seconds: float, settings) -> bool:
+    """Sleep until the next cycle, but wake up early when the Settings page changes. True if it did."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        time.sleep(min(20.0, max(0.0, end - time.monotonic())))
+        try:
+            if _tick(settings):
+                return True
+        except Exception:
+            log.exception("cannot read settings")
+    return False
+
+
+def run():
+    settings = appsettings.Runtime("fetcher", every=0, extra_env=_settings_env)
+    configured, synced, changed = None, False, False
     while True:
         try:
-            if not synced:
+            changed = _tick(settings) or changed
+            if changed or configured is None:
+                changed = False
+                configured, synced = load_siems(), False
+                for sess in _sessions.values():
+                    sess.close()
+                _sessions.clear()
+            if configured and not synced:
                 with db.get_connection() as conn:
                     sync_siems(conn, configured)
                 synced = True
-            failed, collected = run_once(configured)
-            if failed < collected:
-                HEARTBEAT.touch()                  # healthy while at least one collected SIEM is reachable
+            if configured:
+                failed, collected = run_once(configured)
+                if failed < collected:
+                    HEARTBEAT.touch()              # healthy while at least one collected SIEM is reachable
+            else:
+                HEARTBEAT.touch()                  # waiting for a SIEM to be configured is not unhealthy
         except Exception:
             log.exception("fetch cycle failed")
-        time.sleep(COOLDOWN)
+        changed = _wait(cooldown() if configured else 20, settings) or changed
 
 
 if __name__ == "__main__":

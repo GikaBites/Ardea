@@ -15,6 +15,7 @@ from contextlib import contextmanager
 
 import requests
 
+import appsettings
 import config
 import siems as siem_config
 
@@ -25,10 +26,27 @@ class SiemError(Exception):
     """Raised for SIEM problems; the message is safe to show to the model."""
 
 
-_SIEMS = {s.id: s for s in siem_config.load()}
-_DEFAULT = next(iter(_SIEMS), None)
+_SIEMS: dict = {}
+_DEFAULT = None
 _current: contextvars.ContextVar[str | None] = contextvars.ContextVar("siem", default=None)
 _sessions: dict[str, requests.Session] = {}
+
+
+def reload() -> dict:
+    """(Re)read the SIEMs: siems.json, else the Settings page, else .env. Drops cached connections."""
+    global _SIEMS, _DEFAULT
+    _SIEMS = {s.id: s for s in siem_config.load(ui_data=appsettings.siems_data())}
+    _DEFAULT = next(iter(_SIEMS), None)
+    for sess in _sessions.values():
+        sess.close()
+    _sessions.clear()
+    return _SIEMS
+
+
+try:
+    reload()
+except siem_config.SiemConfigError as _exc:     # the worker reports it and waits instead of crashing
+    log.error("SIEM configuration: %s", _exc)
 
 
 def configured() -> dict:

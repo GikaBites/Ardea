@@ -1,5 +1,6 @@
 # Ardea Pro and MSP licence terms
 
+> **DRAFT — not yet reviewed by a lawyer. Have it checked before the first sale.**
 > Version 2026-11 · Ardea™ ("we") is operated by George Karantonas, trading as Ardea · support@ardeasecurity.com
 
 These terms apply when you buy Ardea Pro or Ardea MSP ("the paid editions"). The Ardea source code

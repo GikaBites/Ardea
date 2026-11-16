@@ -282,6 +282,29 @@ def change_own_password(user_id: int, username: str, current: str, new: str, con
                   {"a": username, "ip": ip})
 
 
+def confirm_password(user_id: int, username: str, password: str, ip: str | None) -> bool:
+    """Re-check the signed-in admin's password before a sensitive change. Wrong answers count towards the
+    same lockout as failed logins."""
+    with engine.begin() as c:
+        row = c.execute(text("SELECT password_hash, failed_logins FROM users WHERE id = :id FOR UPDATE"),
+                        {"id": user_id}).mappings().first()
+        if row and check_password_hash(row["password_hash"], password or ""):
+            c.execute(text("UPDATE users SET failed_logins = 0 WHERE id = :id"), {"id": user_id})
+            return True
+        if row:
+            failed = row["failed_logins"] + 1
+            lock = failed >= MAX_FAILED_LOGINS
+            c.execute(text("""UPDATE users SET failed_logins = :f,
+                                     locked_until = CASE WHEN :lock THEN NOW() + make_interval(mins => :m)
+                                                         ELSE locked_until END WHERE id = :id"""),
+                      {"f": 0 if lock else failed, "lock": lock, "m": LOCKOUT_MINUTES, "id": user_id})
+            if lock:
+                _revoke_sessions(c, user_id)
+        c.execute(text("INSERT INTO auth_events (actor, event, ip, detail) VALUES (:a, 'reauth_failed', :ip, :d)"),
+                  {"a": username, "ip": ip, "d": "settings"})
+        return False
+
+
 # --------------------------------------------------------------------------- administration
 def list_users():
     with engine.connect() as c:

@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-RUN useradd --system --uid 10001 ardea && chown -R ardea /app
+RUN useradd --system --uid 10001 ardea && mkdir -p /app/keys && chown -R ardea /app
 USER ardea
 
 # healthy = main loop touched the heartbeat within the last 10 minutes (an LLM call can take minutes)

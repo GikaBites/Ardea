@@ -5,6 +5,7 @@
   * if Ollama is unreachable, alerts stay queued instead of using up their retries
   * True Positive notifications are queued with the result and delivered from the outbox
 """
+import importlib
 import logging
 import os
 import pathlib
@@ -13,6 +14,7 @@ import time
 
 from ollama import Client
 
+import appsettings
 import config
 import db
 import elastic
@@ -20,6 +22,8 @@ import licensing
 import notifier
 import playbooks
 import reports
+import settings_tests
+import siems as siem_config
 from agent import Investigation, LLMUnavailable
 from alert_context import build_context
 from verdict_schema import fallback_verdict
@@ -111,25 +115,60 @@ def llm_ready(llm) -> bool:
     return True
 
 
-def run_worker():
-    log.info("worker %s running, model=%s ctx=%s notify=%s web_search=%s%s siems=%s", db.WORKER_ID, config.MODEL,
+def _settings_env() -> dict:
+    """Extra facts for the Settings page: where the SIEM list comes from."""
+    out = {}
+    if siem_config.file_path().is_file():
+        out["SIEMS_FILE"] = str(siem_config.file_path())
+    if appsettings.from_env("ELASTIC_URL"):
+        out["ELASTIC_URL"] = appsettings.from_env("ELASTIC_URL")
+    return out
+
+
+def _describe():
+    log.info("worker %s: model=%s ctx=%s notify=%s web_search=%s%s siems=%s", db.WORKER_ID, config.MODEL,
              config.NUM_CTX, config.NOTIFY_CHANNELS or "off", config.WEB_SEARCH_PROVIDER,
              " (dry-run)" if config.WEB_SEARCH_DRY_RUN else "", ",".join(elastic.configured()) or "NONE")
     if not elastic.configured():
-        raise SystemExit("no SIEM configured: create siems/siems.json (see siems/siems.example.json) "
-                         "or set ELASTIC_URL")
+        log.warning("no SIEM configured yet: add one on the Settings page (or siems/siems.json, or ELASTIC_URL)")
     missing = [s.id for s in elastic.configured().values() if not s.worker_api_key]
     if missing:
-        raise SystemExit(f"worker_api_key missing for SIEM(s): {', '.join(missing)}")
-    llm = Client(host=config.LLM_URL, timeout=config.LLM_TIMEOUT)
-    probe = Client(host=config.LLM_URL, timeout=10)
+        log.error("worker API key missing for SIEM(s): %s", ", ".join(missing))
+
+
+def apply_settings(conn) -> bool:
+    """Reload config and the SIEM list from the Settings page. Returns True if anything changed."""
+    importlib.reload(config)
+    try:
+        elastic.reload()
+    except siem_config.SiemConfigError as exc:
+        log.error("SIEM configuration: %s", exc)
+    for name, why in appsettings.PROBLEMS.items():
+        log.warning("setting %s ignored: %s", name, why)
+    return True
+
+
+def run_worker():
+    settings = appsettings.Runtime("worker", extra_env=_settings_env)
+    llm = probe = None
     conn = None
+    described = False
     checked = False
     last_maintenance = 0.0
     while _running:
         try:
             if conn is None or conn.closed:
                 conn = db.get_connection()
+            if settings.tick(conn) or llm is None:
+                apply_settings(conn)
+                llm = Client(host=config.LLM_URL, timeout=config.LLM_TIMEOUT)
+                probe = Client(host=config.LLM_URL, timeout=10)
+                if described:
+                    log.info("settings changed on the Settings page: applied")
+                    licensing.refresh(conn)
+                _describe()
+                described = True
+            settings_tests.run_pending(conn)
             if not checked:
                 db.ensure_schema(conn)
                 licensing.ensure_schema(conn)
@@ -149,6 +188,9 @@ def run_worker():
             licensing.sync(conn)
             notifier.deliver_pending(conn)
 
+            if not elastic.configured():
+                time.sleep(config.POLL_SECONDS)
+                continue
             if not llm_ready(probe):
                 time.sleep(config.LLM_UNAVAILABLE_BACKOFF)
                 continue

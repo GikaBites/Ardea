@@ -32,7 +32,8 @@
 				<a class="ar-nav__link {% if request.path == '/' %}is-active{% endif %}" href="/">Alerts</a>
 				<a class="ar-nav__link {% if request.path.startswith('/insights') %}is-active{% endif %}" href="/insights/report">Insights</a>
 				{% if g.user.role == "admin" %}
-				<a class="ar-nav__link {% if request.path.startswith('/admin') %}is-active{% endif %}" href="{{ url_for('users_page') }}">Users</a>
+				<a class="ar-nav__link {% if request.path.startswith('/admin/users') %}is-active{% endif %}" href="{{ url_for('users_page') }}">Users</a>
+				<a class="ar-nav__link {% if request.path.startswith('/admin/settings') %}is-active{% endif %}" href="/admin/settings">Settings</a>
 				{% endif %}
 				{% endif %}
 			</div>

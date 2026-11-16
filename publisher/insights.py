@@ -3,12 +3,19 @@
 All numbers come straight from the database. Every query is limited to the SIEMs the signed-in user may
 see (admins and unrestricted users: all), so an MSP customer's viewer only ever sees their own figures.
 """
-import os
 from datetime import datetime, timedelta, timezone
 
 from db import get_connection
 
-MINUTES_PER_ALERT = max(1, int(os.getenv("ARDEA_MINUTES_PER_ALERT", "10") or 10))
+
+
+def minutes_per_alert() -> int:
+    """.env first, then the Settings page; 10 by default."""
+    import settings_admin
+    try:
+        return max(1, int(settings_admin.publisher_value("ARDEA_MINUTES_PER_ALERT", "10") or 10))
+    except ValueError:
+        return 10
 CLOSING = ("Benign Positive", "False Positive")
 # Tactics the tuning advisor never suggests silencing (same spirit as the never_auto_close playbooks).
 NEVER_TUNE_TACTICS = ("Credential Access", "Lateral Movement", "Impact", "Exfiltration")
@@ -102,7 +109,8 @@ def report(period, siems, first_siem) -> dict:
     t["closed"] = closed
     t["to_person"] = t["tp"] + t["review"]
     t["closed_pct"] = round(100 * closed / t["alerts"]) if t["alerts"] else 0
-    t["hours_saved"] = round(t["closed_raw"] * MINUTES_PER_ALERT / 60, 1)
+    minutes = minutes_per_alert()
+    t["hours_saved"] = round(t["closed_raw"] * minutes / 60, 1)
     t["median_min"] = round(t["median_ms"] / 60000, 1) if t["median_ms"] else None
     f = dict(fb)
     f["agreement_pct"] = round(100 * f["agreed"] / f["reviewed"]) if f["reviewed"] else None
@@ -111,7 +119,7 @@ def report(period, siems, first_siem) -> dict:
     for r in rules:
         r["closed_pct"] = round(100 * r["closed"] / r["alerts"]) if r["alerts"] else 0
     return {"totals": t, "feedback": f, "true_positives": tps, "rules": rules,
-            "minutes_per_alert": MINUTES_PER_ALERT}
+            "minutes_per_alert": minutes}
 
 
 # --------------------------------------------------------------------------- trends

@@ -102,7 +102,7 @@
 		{% if g.user.role in ("admin", "analyst") %}<p class="ins-muted ins-noprint">Rules that are almost always closed are candidates for <a href="/insights/tuning{% if siem %}?siem={{ siem }}{% endif %}">rule tuning</a>.</p>{% endif %}
 		{% else %}<p class="ins-muted">No alerts in this period.</p>{% endif %}
 	</section>
-	<p class="ins-foot">Alerts triaged counts every alert, including duplicates merged into one. Time saved assumes {{ data.minutes_per_alert }} minutes of analyst work per alert closed automatically (setting <code>ARDEA_MINUTES_PER_ALERT</code>). Agreement is based on analyst feedback in {{ product_name }}.</p>
+	<p class="ins-foot">Alerts triaged counts every alert, including duplicates merged into one. Time saved assumes {{ data.minutes_per_alert }} minutes of analyst work per alert closed automatically (change it under Settings, Reports and branding). Agreement is based on analyst feedback in {{ product_name }}.</p>
 
 	{% elif section == "trends" %}
 	<section class="ins-block">

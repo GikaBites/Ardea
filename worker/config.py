@@ -1,17 +1,12 @@
-"""All tunables in one place. Everything is overridable from .env."""
-import os
+"""All tunables in one place. Each is read from .env first, then from the Settings page (appsettings.py),
+then the default here. The worker reloads this module when the Settings page changes."""
+import appsettings
 
 
 def env(name, default=""):
     """Read a setting. Docker Compose turns `KEY=   # comment` in .env into the value '# comment',
     so a value starting with '#' is treated as unset. Every setting goes through here."""
-    v = os.getenv(name)
-    if v is None:
-        return default
-    v = v.strip()
-    if not v or v.startswith("#"):       # empty behaves like Compose's ${VAR:-default}
-        return default
-    return v
+    return appsettings.env(name, default)
 
 
 def _int(name, default):
@@ -38,7 +33,7 @@ NUM_PREDICT = _int("LLM_NUM_PREDICT", 2048)             # room for the full JSON
 # gpt-oss takes "low" | "medium" | "high".
 _think = env("LLM_THINK", "").lower()
 LLM_THINK = {"true": True, "false": False}.get(_think, _think if _think in ("low", "medium", "high") else None)
-LLM_TIMEOUT = _int("LLM_TIMEOUT_SECONDS", 300)
+LLM_TIMEOUT = _int("LLM_TIMEOUT_SECONDS", 900)
 LLM_SEED = _int("LLM_SEED", 42)                         # fixed seed: same input -> same verdict (reproducible evals)
 _ka = env("LLM_KEEP_ALIVE", "-1")                 # keep the model loaded (an 18 GB reload on CPU is slow)
 LLM_KEEP_ALIVE = int(_ka) if _ka.lstrip("-").isdigit() else _ka   # Ollama: number (-1 = forever) or "24h"
@@ -51,7 +46,7 @@ PROMPT_VERSION = "2026.11"
 MAX_STEPS = _int("AGENT_MAX_STEPS", 8)                  # LLM turns in the investigation phase
 MAX_TOOL_CALLS = _int("AGENT_MAX_TOOL_CALLS", 10)
 MAX_WEB_SEARCHES = _int("AGENT_MAX_WEB_SEARCHES", 3)
-MAX_WALL_SECONDS = _int("AGENT_MAX_WALL_SECONDS", 420)
+MAX_WALL_SECONDS = _int("AGENT_MAX_WALL_SECONDS", 1200)
 MAX_DUPLICATE_CALLS = 2
 TOOL_RESULT_MAX_CHARS = _int("TOOL_RESULT_MAX_CHARS", 3500)
 FINAL_SCHEMA_RETRIES = 2
@@ -92,7 +87,7 @@ CACHE_TTL_WEB = _int("CACHE_TTL_WEB", 86400)
 # --- Worker ------------------------------------------------------------------------
 POLL_SECONDS = _int("WORKER_POLL_SECONDS", 5)
 MAX_ATTEMPTS = _int("WORKER_MAX_ATTEMPTS", 3)
-LEASE_MINUTES = _int("WORKER_LEASE_MINUTES", 15)
+LEASE_MINUTES = _int("WORKER_LEASE_MINUTES", 40)
 
 # --- Notifications (True Positive alerts) ---------------------------------------------
 NOTIFY_CHANNELS = _list("NOTIFY_CHANNELS", "")          # smtp, ntfy  (empty = off)

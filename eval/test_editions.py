@@ -57,8 +57,8 @@ def test_interpret_maps_store_and_product_to_edition():
     (ls_answer(ok=False, error="license_key not found."), "not found"),
     (ls_answer(status="expired"), "expired"),
     (ls_answer(status="disabled"), "disabled"),
-    (ls_answer(store=12345), "not a Ardea licence"),          # someone else's Lemon Squeezy key
-    (ls_answer(product=333), "not a Ardea edition"),
+    (ls_answer(store=12345), "not an Ardea licence"),          # someone else's Lemon Squeezy key
+    (ls_answer(product=333), "not an Ardea edition"),
 ])
 def test_interpret_rejects(answer, reason):
     with pytest.raises(licensing.LicenseInvalid, match=reason):

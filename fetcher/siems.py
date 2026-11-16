@@ -1,8 +1,8 @@
 """SIEM connections: one entry per Elastic cluster Ardea collects alerts from.
 
-Read from siems/siems.json (mounted at /app/siems; path in SIEMS_FILE). Without that file, a single SIEM
-with id "default" is built from the old ELASTIC_* / KIBANA_BASE_URL settings, so existing installs keep
-working unchanged. The SAME file is used by the fetcher (fetcher_api_key) and the worker
+Read from siems/siems.json (mounted at /app/siems; path in SIEMS_FILE) if it exists, else from the SIEMs
+on the Settings page of the web UI, else a single SIEM with id "default" built from the old ELASTIC_* /
+KIBANA_BASE_URL settings, so existing installs keep working unchanged. The SAME file is used by the fetcher (fetcher_api_key) and the worker
 (worker_api_key); keep fetcher/siems.py and worker/siems.py identical.
 
     {"siems": [
@@ -144,9 +144,17 @@ def parse(data: dict) -> list[Siem]:
     return out
 
 
-def load(path: str | None = None) -> list[Siem]:
-    """All enabled SIEMs, in file order. The first one owns alerts stored before multi-SIEM support."""
-    p = pathlib.Path(path or _env("SIEMS_FILE", "/app/siems/siems.json"))
+def file_path(path: str | None = None) -> pathlib.Path:
+    return pathlib.Path(path or _env("SIEMS_FILE", "/app/siems/siems.json"))
+
+
+def load(path: str | None = None, ui_data: dict | None = None) -> list[Siem]:
+    """All enabled SIEMs, in order. The first one owns alerts stored before multi-SIEM support.
+    Sources, first match wins: siems.json, the Settings page (ui_data), the ELASTIC_* settings in .env."""
+    p = file_path(path)
+    if not p.is_file() and ui_data:
+        siems = parse(ui_data)
+        return siems
     if p.is_file():
         try:
             data = json.loads(p.read_text())

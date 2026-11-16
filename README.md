@@ -151,11 +151,15 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Every setting is documented in [`.env.example`](.env.example). The ones you must set in `.env`:
+In `.env` you only need **`POSTGRES_PASSWORD`** (a long random password) and the HTTPS address of step 4.
+Everything else (the AI model, your SIEMs, notifications, the licence) can be set after the first sign-in on
+the **Settings** page of the web UI (step 6).
+
+If you prefer to keep everything in files, every setting is documented in [`.env.example`](.env.example) and
+still works: a value in `.env` always wins and is shown read-only on the Settings page. The ones that matter most:
 
 | Setting | Value |
 |---|---|
-| `POSTGRES_PASSWORD` | A long random password |
 | `LLM_URL` | `http://<ollama-host>:11434`, or `http://host.docker.internal:11434` if Ollama runs on the Docker host |
 | `LLM_MODEL` | The model you pulled, exactly as `ollama list` shows it |
 | `LLM_NUM_CTX` | `16384` without a GPU, `24576` with one |
@@ -168,8 +172,8 @@ Every setting is documented in [`.env.example`](.env.example). The ones you must
 Put comments in `.env` on their own line, never after a value: Docker Compose would read the comment as part of
 the value.
 
-With more than one Elastic cluster, leave the `ELASTIC_*` settings empty and use `siems/siems.json` instead (see
-[Several SIEMs](#several-siems)).
+With more than one Elastic cluster, add them on the Settings page, or leave the `ELASTIC_*` settings empty and use
+`siems/siems.json` (see [Several SIEMs](#several-siems)).
 
 ### Several SIEMs
 
@@ -199,7 +203,9 @@ investigated only in the cluster it came from, and the UI can show one SIEM or a
 
 3. `docker compose up -d --build`. The fetcher log lists the SIEMs it polls.
 
-When `siems/siems.json` exists, the `ELASTIC_*`, `KIBANA_BASE_URL` and `SIEM_NAME` settings in `.env` are ignored.
+The Settings page does the same without a file (**Settings → SIEMs → Add a SIEM**). When `siems/siems.json`
+exists, it wins: the SIEM list on the Settings page becomes read-only, and the `ELASTIC_*`, `KIBANA_BASE_URL` and
+`SIEM_NAME` settings in `.env` are ignored.
 Alerts collected before this file existed belong to the **first** SIEM in it, so put the cluster you used until now
 first. `siems/siems.json` and certificates in `siems/` are git-ignored: they contain secrets.
 
@@ -252,9 +258,46 @@ docker compose logs publisher | grep -A1 "Temporary password"
 ```
 
 Open `https://<host>/`, sign in as `admin` with that password, and choose your own password (at least 12
-characters). Then create accounts for the other analysts under **Users** (see [Users and roles](#users-and-roles)).
+characters). Then open **Settings** (step 6) and create accounts for the other analysts under **Users** (see [Users and roles](#users-and-roles)).
 
-### 6. Tune it for your environment
+### 6. Configure Ardea on the Settings page
+
+Signed in as an admin, open **Settings**. Changes apply within about 30 seconds, without a restart.
+
+| Section | What you set there |
+|---|---|
+| Licence | Your Pro or MSP licence key, or an offline licence file |
+| SIEMs | Each Elastic cluster: URL, the two API keys of step 2, Kibana URL, a private CA certificate. MSP: per-customer facts, alert routing and report recipients |
+| AI model | Ollama URL, model, context window, reasoning, timeouts. **Test the connection** lists the installed models |
+| Triage | Confidence needed to close, the second look before closing, investigation limits, rules to ignore |
+| Web search | Provider and keys, allowed query kinds, internal domains and words that must never be searched |
+| Notifications | E-mail, ntfy, Slack, Teams, webhook, Jira, TheHive, with a test button for each (Pro) |
+| Reports and branding | Scheduled report e-mails (Pro), minutes per alert for the time-saved estimate, your brand name and logo (MSP) |
+| Change log | Who changed which setting and when. Values are never recorded |
+
+How the Settings page keeps secrets safe:
+
+- **Write-only.** A saved key or password is shown only as "Saved (ends in 7f3a)". Nobody can read it back,
+  admins included.
+- **The web UI cannot open them.** Secrets are encrypted with a key pair that the worker creates on its first
+  start. Only the worker and fetcher hold the private half (Docker volume `settings_keys`); the web UI has only the
+  public half. Someone who took over the web UI could still not read your Elastic keys or SMTP password.
+- **Bound to their host.** An Elastic API key only opens for the cluster URL it was saved with, and the SMTP
+  password only for its SMTP server. Changing the address clears the secret, so it can never be sent somewhere new
+  without being typed in again.
+- **Tests run in the worker.** The test buttons queue a check that the worker carries out with the saved values;
+  results never contain the secret or a full URL. They can take a minute while the worker investigates an alert.
+- **Your password again.** Saving a key, password, the licence or a SIEM asks for the admin's password (not with
+  single sign-on). Wrong answers count towards the normal lockout.
+
+What stays in `.env`: database credentials, the HTTPS address and certificate, single sign-on, the egress proxy,
+web UI session limits and demo mode. A value set in `.env` always wins and appears read-only on the Settings page;
+remove it from `.env` to manage it there.
+
+**Back up the `settings_keys` volume** together with the database. Without it, the worker creates a new key and the
+Settings page asks you to enter the saved keys and passwords again (nothing else is lost).
+
+### 7. Tune it for your environment
 
 - **Playbooks**: [`worker/playbooks.yaml`](worker/playbooks.yaml) holds rule-specific guidance and the SIEM queries
   that run before the LLM starts. Write playbooks for your noisiest rules first. Changes are picked up
@@ -463,7 +506,7 @@ closed automatically* in your file cannot be relaxed by the pack.
 *Pro and MSP editions.*
 
 Analysts can sign in through your identity provider (Authentik, Authelia, Keycloak with oauth2-proxy, ...)
-instead of a Ardea password. Caddy asks the identity provider (`forward_auth`) and passes the username to
+instead of an Ardea password. Caddy asks the identity provider (`forward_auth`) and passes the username to
 Ardea, which signs in the Ardea user with **exactly that username**. Accounts are not created
 automatically: create each user on the **Users** page first, so you still decide who gets in and with which
 role.
@@ -661,7 +704,7 @@ For development with live code changes:
 | Users page shows *Licence check: licence server not reachable* | The worker cannot reach `api.lemonsqueezy.com`. Paid features stay on for 30 days. Set `ARDEA_LICENSE_PROXY` (egress lockdown) or allow the host. |
 | *licence key not accepted: ... activation limit* | The key is active on another installation. Deactivate the old one in the Lemon Squeezy customer portal (link in your order e-mail). |
 | Worker log: `playbook pack ... rejected: signature is not valid` | The pack file was changed or damaged. Download it again from your order. |
-| SSO: *has no active Ardea account* | Create a Ardea user with exactly the username your identity provider sends, or enable the disabled account. |
+| SSO: *has no active Ardea account* | Create an Ardea user with exactly the username your identity provider sends, or enable the disabled account. |
 
 ---
 

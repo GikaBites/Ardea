@@ -48,13 +48,14 @@ services:
       ELASTIC_FETCHER_API_KEY: ${ELASTIC_FETCHER_API_KEY:-}   # read-only, alerts index only
       KIBANA_BASE_URL: ${KIBANA_BASE_URL:-}
       SIEM_NAME: ${SIEM_NAME:-Elastic}
-      FETCH_INTERVAL_SECONDS: ${FETCH_INTERVAL_SECONDS:-180}
+      FETCH_INTERVAL_SECONDS: ${FETCH_INTERVAL_SECONDS:-}
       FETCH_OVERLAP_MINUTES: ${FETCH_OVERLAP_MINUTES:-10}
       FETCH_INITIAL_LOOKBACK_HOURS: ${FETCH_INITIAL_LOOKBACK_HOURS:-12}
-      DEDUP_WINDOW_HOURS: ${DEDUP_WINDOW_HOURS:-24}
+      DEDUP_WINDOW_HOURS: ${DEDUP_WINDOW_HOURS:-}
       ELASTIC_CA_CERT: ${ELASTIC_CA_CERT:-}
     volumes:
       - ./siems:/app/siems:ro            # siems.json (+ CA certificates) for several SIEMs
+      - settings_keys:/app/keys          # private key that opens secrets saved on the Settings page
     depends_on: { db: { condition: service_healthy } }
     networks: [internal, lan]
     logging: *logging
@@ -70,44 +71,44 @@ services:
       ELASTIC_WORKER_API_KEY: ${ELASTIC_WORKER_API_KEY:-}     # read-only, alerts + logs-*
       ELASTIC_CA_CERT: ${ELASTIC_CA_CERT:-}
       SIEM_NAME: ${SIEM_NAME:-Elastic}
-      LLM_URL: ${LLM_URL}
-      LLM_MODEL: ${LLM_MODEL:-qwen3:14b}
-      LLM_NUM_CTX: ${LLM_NUM_CTX:-24576}
+      LLM_URL: ${LLM_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_NUM_CTX: ${LLM_NUM_CTX:-}
       LLM_THINK: ${LLM_THINK:-}
       LLM_NUM_PREDICT: ${LLM_NUM_PREDICT:-2048}
       LLM_SEED: ${LLM_SEED:-42}
-      LLM_KEEP_ALIVE: ${LLM_KEEP_ALIVE:--1}
+      LLM_KEEP_ALIVE: ${LLM_KEEP_ALIVE:-}
       LLM_UNAVAILABLE_BACKOFF_SECONDS: ${LLM_UNAVAILABLE_BACKOFF_SECONDS:-30}
-      LLM_NUM_THREAD: ${LLM_NUM_THREAD:-0}
+      LLM_NUM_THREAD: ${LLM_NUM_THREAD:-}
       # Budgets. CPU-only inference needs the generous values.
-      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-900}
-      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-8}
-      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-10}
-      AGENT_MAX_WALL_SECONDS: ${AGENT_MAX_WALL_SECONDS:-1200}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-}
+      AGENT_MAX_WALL_SECONDS: ${AGENT_MAX_WALL_SECONDS:-}
       AGENT_MAX_WEB_SEARCHES: ${AGENT_MAX_WEB_SEARCHES:-3}
       TOOL_RESULT_MAX_CHARS: ${TOOL_RESULT_MAX_CHARS:-3500}
       WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
       WORKER_LEASE_MINUTES: ${WORKER_LEASE_MINUTES:-40}
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
-      VERIFY_CLOSURES: ${VERIFY_CLOSURES:-true}
-      FEEDBACK_EXAMPLES: ${FEEDBACK_EXAMPLES:-3}
-      MIN_CONFIDENCE_TO_CLOSE: ${MIN_CONFIDENCE_TO_CLOSE:-70}
+      VERIFY_CLOSURES: ${VERIFY_CLOSURES:-}
+      FEEDBACK_EXAMPLES: ${FEEDBACK_EXAMPLES:-}
+      MIN_CONFIDENCE_TO_CLOSE: ${MIN_CONFIDENCE_TO_CLOSE:-}
       # Notifications (see README "True Positive notifications")
       NOTIFY_CHANNELS: ${NOTIFY_CHANNELS:-}
-      NOTIFY_VERDICTS: ${NOTIFY_VERDICTS:-True Positive}
-      NOTIFY_MIN_SEVERITY: ${NOTIFY_MIN_SEVERITY:-Informational}
-      NOTIFY_DETAIL: ${NOTIFY_DETAIL:-full}
+      NOTIFY_VERDICTS: ${NOTIFY_VERDICTS:-}
+      NOTIFY_MIN_SEVERITY: ${NOTIFY_MIN_SEVERITY:-}
+      NOTIFY_DETAIL: ${NOTIFY_DETAIL:-}
       NOTIFY_MAX_ATTEMPTS: ${NOTIFY_MAX_ATTEMPTS:-8}
       ARDEA_PUBLIC_URL: ${ARDEA_PUBLIC_URL:-}
       KIBANA_BASE_URL: ${KIBANA_BASE_URL:-}
       SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_SECURITY: ${SMTP_SECURITY:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
       SMTP_TO: ${SMTP_TO:-}
-      NTFY_URL: ${NTFY_URL:-https://ntfy.sh}
+      NTFY_URL: ${NTFY_URL:-}
       NTFY_TOPIC: ${NTFY_TOPIC:-}
       NTFY_TOKEN: ${NTFY_TOKEN:-}
       NTFY_PROXY: ${NTFY_PROXY:-}
@@ -121,18 +122,18 @@ services:
       JIRA_USER: ${JIRA_USER:-}
       JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
       JIRA_PROJECT: ${JIRA_PROJECT:-}
-      JIRA_ISSUE_TYPE: ${JIRA_ISSUE_TYPE:-Task}
+      JIRA_ISSUE_TYPE: ${JIRA_ISSUE_TYPE:-}
       THEHIVE_URL: ${THEHIVE_URL:-}
       THEHIVE_API_KEY: ${THEHIVE_API_KEY:-}
       # Pro scheduled reports (README "Reports and insights")
-      ARDEA_REPORTS: ${ARDEA_REPORTS:-off}
+      ARDEA_REPORTS: ${ARDEA_REPORTS:-}
       ARDEA_REPORT_TO: ${ARDEA_REPORT_TO:-}
-      ARDEA_MINUTES_PER_ALERT: ${ARDEA_MINUTES_PER_ALERT:-10}
+      ARDEA_MINUTES_PER_ALERT: ${ARDEA_MINUTES_PER_ALERT:-}
       ARDEA_BRAND_NAME: ${ARDEA_BRAND_NAME:-}
       # Web search (see README "Enabling web search safely")
-      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-disabled}
-      WEB_SEARCH_DRY_RUN: ${WEB_SEARCH_DRY_RUN:-false}
-      WEB_SEARCH_KINDS: ${WEB_SEARCH_KINDS:-ip,domain,hash,cve,mitre,filename}
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-}
+      WEB_SEARCH_DRY_RUN: ${WEB_SEARCH_DRY_RUN:-}
+      WEB_SEARCH_KINDS: ${WEB_SEARCH_KINDS:-}
       WEB_SEARCH_PER_HOUR: ${WEB_SEARCH_PER_HOUR:-60}
       WEB_SEARCH_PER_DAY: ${WEB_SEARCH_PER_DAY:-500}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
@@ -140,7 +141,7 @@ services:
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       GOOGLE_CSE_ID: ${GOOGLE_CSE_ID:-}
       EGRESS_PROXY: ${EGRESS_PROXY:-}
-      INTERNAL_DOMAINS: ${INTERNAL_DOMAINS:-local,lan,corp,internal}
+      INTERNAL_DOMAINS: ${INTERNAL_DOMAINS:-}
       SENSITIVE_TERMS: ${SENSITIVE_TERMS:-}
       # Edition (README "Editions"). Empty = Community.
       ARDEA_LICENSE_KEY: ${ARDEA_LICENSE_KEY:-}
@@ -150,6 +151,7 @@ services:
       - ./siems:/app/siems:ro            # siems.json (+ CA certificates) for several SIEMs
       - ./packs:/app/packs:ro            # Ardea playbook pack (*.ardpack), Pro / MSP
       - ./license:/app/license:ro        # offline licence file (ardea.license), if you have one
+      - settings_keys:/app/keys          # private key that opens secrets saved on the Settings page
     depends_on: { db: { condition: service_healthy } }
     extra_hosts: ["host.docker.internal:host-gateway"]   # LLM_URL=http://host.docker.internal:11434 if Ollama runs on the host
     networks: [internal, lan]
@@ -169,7 +171,7 @@ services:
       LOCKOUT_MINUTES: ${LOCKOUT_MINUTES:-15}
       ARDEA_SSO: ${ARDEA_SSO:-false}          # Pro / MSP; also needs forward_auth in caddy/Caddyfile
       ARDEA_BRAND_NAME: ${ARDEA_BRAND_NAME:-}  # MSP; logo: branding/logo.png|jpg|webp
-      ARDEA_MINUTES_PER_ALERT: ${ARDEA_MINUTES_PER_ALERT:-10}   # Insights: time-saved estimate
+      ARDEA_MINUTES_PER_ALERT: ${ARDEA_MINUTES_PER_ALERT:-}   # Insights: time-saved estimate
     volumes:
       - ./branding:/app/branding:ro
     # No published port: only reachable through the caddy HTTPS proxy.
@@ -245,5 +247,6 @@ networks:
 
 volumes:
   db_data:
+  settings_keys:     # back it up with the database: without it, secrets saved on the Settings page must be re-entered
   caddy_data:        # Caddy's certificate authority and certificates
   caddy_config:

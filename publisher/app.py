@@ -1,6 +1,8 @@
+import base64
 import json
 import logging
 import os
+import re
 import secrets
 import threading
 from datetime import datetime, timedelta, timezone
@@ -9,6 +11,7 @@ from functools import wraps
 from urllib.parse import urlparse
 
 from flask import (
+    Response,
     Flask,
     abort,
     g,
@@ -23,9 +26,11 @@ from flask import (
 from sqlalchemy import text
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+import appsettings
 import auth
 import demo
 import editions
+import settings_admin
 from db import (AlertRepository, add_feedback, alert_siem, ensure_schema, get_feedback,  # type: ignore
                 get_session, get_trail, list_siems)
 
@@ -82,7 +87,7 @@ def _origin_ok(url):
 
 
 def _same_origin():
-    """True if the request was made by a Ardea page.
+    """True if the request was made by an Ardea page.
 
     Sec-Fetch-Site is set by the browser itself (other sites cannot set it) and is not affected by
     proxies or port forwards that rewrite Host, so it is checked first. Origin/Referer are the
@@ -131,7 +136,7 @@ def _sso_username():
 
 
 def _sso_refused(name):
-    msg = (f"Your single sign-on account '{name[:64]}' has no active Ardea account. Ask a Ardea admin "
+    msg = (f"Your single sign-on account '{name[:64]}' has no active Ardea account. Ask an Ardea admin "
            "to create a user with exactly this username." if name else
            "Your single sign-on username is not a valid Ardea username.")
     if _is_api():
@@ -140,12 +145,28 @@ def _sso_refused(name):
 
 
 # --------------------------------------------------------------------------- branding (MSP)
-BRAND_NAME = os.getenv("ARDEA_BRAND_NAME", "").strip()[:40]
 BRAND_DIR = os.getenv("ARDEA_BRANDING_DIR", "/app/branding")
 _LOGO_TYPES = {b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/jpeg", b"RIFF": "image/webp"}
 
 
+def _brand_name() -> str:
+    """.env first, then the Settings page."""
+    return settings_admin.publisher_value("ARDEA_BRAND_NAME").strip()[:40]
+
+
 def _brand_logo():
+    """(source, mime): a file in branding/, else the logo uploaded on the Settings page (bytes)."""
+    found = _brand_logo_file()
+    if found:
+        return found
+    uri = settings_admin.publisher_value(appsettings.BRAND_LOGO_KEY)
+    m = re.match(r"^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$", uri or "")
+    if m:
+        return base64.b64decode(m.group(2)), m.group(1)
+    return None
+
+
+def _brand_logo_file():
     """(path, mimetype) of branding/logo.png|jpg|webp, checked by content (no SVG: it can carry script)."""
     for name in ("logo.png", "logo.jpg", "logo.jpeg", "logo.webp"):
         path = os.path.join(BRAND_DIR, name)
@@ -163,9 +184,12 @@ def _brand_logo():
 
 
 def current_brand():
-    if not editions.has("branding") or not (BRAND_NAME or _brand_logo()):
+    if not editions.has("branding"):
         return None
-    return {"name": BRAND_NAME or "Ardea", "logo": bool(_brand_logo())}
+    name, logo = _brand_name(), _brand_logo()
+    if not (name or logo):
+        return None
+    return {"name": name or "Ardea", "logo": bool(logo)}
 
 
 @app.context_processor
@@ -179,6 +203,8 @@ def brand_logo():
     found = _brand_logo() if editions.has("branding") else None
     if not found:
         abort(404)
+    if isinstance(found[0], bytes):
+        return Response(found[0], mimetype=found[1], headers={"Cache-Control": "max-age=300"})
     return send_file(found[0], mimetype=found[1], max_age=3600)
 
 
@@ -877,8 +903,10 @@ def alert_feedback(alert_id):
 
 
 from pro import bp as pro_blueprint  # noqa: E402  (Insights, CSV export, re-triage, MSP usage)
+from settings_admin import bp as settings_blueprint  # noqa: E402  (Settings page)
 
 app.register_blueprint(pro_blueprint)
+app.register_blueprint(settings_blueprint)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+import appsettings
+
 log = logging.getLogger("licensing")
 
 TIERS = ("community", "pro", "msp")
@@ -178,12 +180,16 @@ def _parse_time(value) -> datetime | None:
 def read_offline_license(path: pathlib.Path = None) -> dict | None:
     """The offline licence's payload, None if there is no file. Raises LicenseInvalid if it is bad."""
     path = path or OFFLINE_FILE
-    if not path.is_file():
+    if path.is_file():
+        text, where = path.read_text(), path.name
+    elif path == OFFLINE_FILE and appsettings.env("ARDEA_LICENSE_OFFLINE"):
+        text, where = appsettings.env("ARDEA_LICENSE_OFFLINE"), "the offline licence on the Settings page"
+    else:
         return None
     try:
-        doc = json.loads(path.read_text())
+        doc = json.loads(text)
     except (OSError, json.JSONDecodeError):
-        raise LicenseInvalid(f"{path.name} is not readable JSON") from None
+        raise LicenseInvalid(f"{where} is not readable JSON") from None
     payload = verify_signed(doc, "license")
     if payload.get("tier") not in ("pro", "msp"):
         raise LicenseInvalid("offline licence has no valid tier")
@@ -199,8 +205,8 @@ def read_offline_license(path: pathlib.Path = None) -> dict | None:
 
 # --------------------------------------------------------------------------- Lemon Squeezy
 def _proxies():
-    proxy = (os.getenv("ARDEA_LICENSE_PROXY", "").strip() or os.getenv("EGRESS_PROXY", "").strip())
-    return {"https": proxy, "http": proxy} if proxy and not proxy.startswith("#") else None
+    proxy = appsettings.env("ARDEA_LICENSE_PROXY") or appsettings.env("EGRESS_PROXY")
+    return {"https": proxy, "http": proxy} if proxy else None
 
 
 def _call(endpoint: str, data: dict) -> dict:
@@ -233,10 +239,10 @@ def interpret(body: dict, ok_field: str) -> dict:
     if not ls.get("store_id"):
         raise LicenseInvalid("this build has no store configured (run release.py set-store)")
     if str(meta.get("store_id")) != str(ls["store_id"]):
-        raise LicenseInvalid("this key is not a Ardea licence")
+        raise LicenseInvalid("this key is not an Ardea licence")
     tier_name = (ls.get("products") or {}).get(str(meta.get("product_id")))
     if tier_name not in ("pro", "msp"):
-        raise LicenseInvalid("this key is for a product that is not a Ardea edition")
+        raise LicenseInvalid("this key is for a product that is not an Ardea edition")
     return {"tier": tier_name, "status": "active",
             "customer": str(meta.get("customer_name") or meta.get("customer_email") or "")[:120] or None,
             "product": str(meta.get("variant_name") or meta.get("product_name") or tier_name)[:120],
@@ -249,8 +255,7 @@ def _key_hash(key: str) -> str:
 
 
 def _license_key() -> str:
-    key = os.getenv("ARDEA_LICENSE_KEY", "").strip()
-    return "" if key.startswith("#") else key
+    return appsettings.env("ARDEA_LICENSE_KEY")
 
 
 # --------------------------------------------------------------------------- refresh (worker only)
