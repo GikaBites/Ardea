@@ -198,3 +198,20 @@ def test_logo_upload(key):
     assert rows()[A.BRAND_LOGO_KEY]["value"] == "data:image/png;base64," + base64.b64encode(PNG).decode()
     settings_admin.publisher_cache.clear()
     assert app_module._brand_logo() == (PNG, "image/png")
+
+
+def test_a_65_kb_logo_fits_but_other_forms_stay_small(key):
+    import io
+    c = login("set.admin")
+    big_png = PNG + b"\0" * (65 * 1024)
+    r = post(c, "/admin/settings/reports", {"BRAND_LOGO": (io.BytesIO(big_png), "logo.png"),
+                                            "confirm_password": PASSWORD}, content_type="multipart/form-data")
+    assert r.status_code == 200, r.status_code
+    too_big = PNG + b"\0" * (210 * 1024)
+    r = post(c, "/admin/settings/reports", {"BRAND_LOGO": (io.BytesIO(too_big), "logo.png"),
+                                            "confirm_password": PASSWORD}, content_type="multipart/form-data")
+    assert r.status_code == 400 and "larger than 200 KB" in r.get_data(as_text=True)
+    r = post(c, "/admin/settings/ai", {"LLM_MODEL": "x" * (20 * 1024)})
+    assert r.status_code == 303 and "too_large=1" in r.headers["Location"]
+    page = c.get(r.headers["Location"], base_url=BASE).get_data(as_text=True)
+    assert "nothing was saved" in page and "LLM_MODEL" not in rows()

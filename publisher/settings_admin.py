@@ -531,6 +531,15 @@ def _render(group, status=200, error=None, notes=None, edit=None, form=None):
         msp=editions.has("multi_siem"), edition=editions.edition(), license=_main()._license_view()), status
 
 
+@bp.app_errorhandler(413)
+def too_large(_exc):
+    """A friendly answer instead of the bare 413 page, on the Settings page."""
+    group = request.path.rsplit("/", 1)[-1]
+    if request.path.startswith("/admin/settings/") and group in GROUP_NAMES:
+        return redirect(url_for("settings.settings_page", group=group, too_large=1), code=303)
+    return "Request too large.", 413
+
+
 @bp.get("/admin/settings")
 def settings_home():
     _admin()
@@ -543,7 +552,9 @@ def settings_page(group):
     if group not in GROUP_NAMES and group != "audit":
         abort(404)
     edit = request.args.get("edit")
-    return _render(group, edit=edit, notes=[n for n in [request.args.get("note", "")[:300]] if n])
+    error = ("That was too large, so nothing was saved. A logo can be up to 200 KB; other settings forms are "
+             "limited to 16 KB.") if request.args.get("too_large") else None
+    return _render(group, edit=edit, error=error, notes=[n for n in [request.args.get("note", "")[:300]] if n])
 
 
 @bp.post("/admin/settings/<group>")

@@ -39,7 +39,23 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
 log = logging.getLogger("ardea.publisher")
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+# Requests are small (forms, feedback): 16 KB. The one exception is the logo upload on the Settings page.
+MAX_REQUEST_BYTES = 16 * 1024
+MAX_UPLOAD_BYTES = 320 * 1024                     # a 200 KB logo, base64-free multipart, plus the form
+UPLOAD_PATHS = {"/admin/settings/reports"}
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+
+@app.before_request
+def limit_request_size():
+    """16 KB for everything but the logo upload, which may be up to MAX_UPLOAD_BYTES."""
+    if request.method in ("GET", "HEAD"):
+        return None
+    limit = MAX_UPLOAD_BYTES if request.path in UPLOAD_PATHS else MAX_REQUEST_BYTES
+    request.max_content_length = limit            # also caps chunked uploads without a Content-Length
+    if request.content_length is not None and request.content_length > limit:
+        abort(413)
+    return None
 # Requests arrive through the Caddy reverse proxy, which terminates HTTPS.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 KIBANA_HOST = urlparse(os.environ.get("KIBANA_BASE_URL", "")).hostname     # single-SIEM installs (no siems table rows)
