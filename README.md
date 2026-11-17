@@ -71,7 +71,7 @@ already queued are still triaged. If the licence server cannot be reached, the p
 
 **Activating a licence.** As an admin, paste the key from your purchase e-mail under **Settings → Licence** and
 click **Check the licence now**. (Or put it in `.env` as `ARDEA_LICENSE_KEY` and run `docker compose up -d worker`.) Check it with `docker compose exec worker python licensing.py`; admins also
-see the edition on the **Users** page. The worker contacts `api.lemonsqueezy.com` once a day with only the
+see the edition on the **Users** page. The worker contacts the Ardea store's licence server (`api.polar.sh`) once a day with only the
 key and an installation name, never alert data. With the egress lockdown, start the `egress` profile and set
 `ARDEA_LICENSE_PROXY=http://egress-proxy:3128`. For a network without internet access, ask for an
 offline licence file and put it in `license/ardea.license`.
@@ -705,8 +705,8 @@ For development with live code changes:
 | "Wrong username or password, or the account is locked" for a correct password | The account is locked after failed attempts (15 minutes) or was disabled; an admin can see it on the Users page and reset it. |
 | Worker restarts with `NOTIFY_CHANNELS has unknown channel(s)` | Only `smtp` and `ntfy` are valid. |
 | Many *Needs Human Review* verdicts for one rule | Add a playbook and `context:` facts for that rule, and give feedback in the UI. |
-| Users page shows *Licence check: licence server not reachable* | The worker cannot reach `api.lemonsqueezy.com`. Paid features stay on for 30 days. Set `ARDEA_LICENSE_PROXY` (egress lockdown) or allow the host. |
-| *licence key not accepted: ... activation limit* | The key is active on another installation. Deactivate the old one in the Lemon Squeezy customer portal (link in your order e-mail). |
+| Users page shows *Licence check: licence server not reachable* | The worker cannot reach `api.polar.sh`. Paid features stay on for 30 days. Set `ARDEA_LICENSE_PROXY` (egress lockdown) or allow the host. |
+| *licence key not accepted: ... activation limit* | The key is active on another installation. Deactivate the old one in the customer portal (link in your purchase e-mail), then click **Check the licence now**. |
 | Worker log: `playbook pack ... rejected: signature is not valid` | The pack file was changed or damaged. Download it again from your order. |
 | SSO: *has no active Ardea account* | Create an Ardea user with exactly the username your identity provider sends, or enable the disabled account. |
 

@@ -32,7 +32,7 @@ Elastic License 2.0, these terms win for the paid editions.
 
 ## 4. Payment
 
-Orders, payment, invoices, taxes and refunds are handled by our reseller, Lemon Squeezy, under its own
+Orders, payment, invoices, taxes and refunds are handled by our reseller, which acts as merchant of record, under its own
 terms. Subscriptions renew automatically until you cancel them in the customer portal. You can cancel at
 any time; the paid features stay on until the end of the period you paid for. If you are not satisfied, ask
 for a refund within 14 days of your first payment.

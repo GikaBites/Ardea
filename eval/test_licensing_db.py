@@ -23,29 +23,30 @@ PUBLIC = base64.b64encode(KEY.public_key().public_bytes(serialization.Encoding.R
                                                         serialization.PublicFormat.Raw)).decode()
 
 
-def answer(ok_field, status="active", product=111, ok=True, error=None):
-    return {ok_field: ok, "error": error, "license_key": {"status": status, "expires_at": None},
-            "instance": {"id": "inst-1"}, "meta": {"store_id": 999, "product_id": product,
-                                                   "variant_name": "Pro monthly", "customer_name": "Acme"}}
+def polar_key(status="granted", benefit="ben-pro"):
+    return {"organization_id": "org-ardea", "status": status, "benefit_id": benefit, "expires_at": None,
+            "customer": {"name": "Acme", "email": "it@acme.example"}}
 
 
 class FakeServer:
     def __init__(self):
         self.calls, self.mode = [], "ok"
 
-    def __call__(self, endpoint, data):
-        self.calls.append((endpoint, dict(data)))
+    def __call__(self, path, data):
+        self.calls.append((path.rsplit("/", 1)[-1], dict(data)))
         if self.mode == "down":
             raise licensing.LicenseUnreachable("licence server not reachable (ConnectTimeout)")
         if self.mode == "expired":
-            return answer("valid", status="expired")
-        return answer("activated" if endpoint == "activate" else "valid")
+            return 200, polar_key(status="revoked")
+        if path.endswith("/activate"):
+            return 200, {"id": "act-1", "license_key": polar_key()}
+        return 200, polar_key()
 
 
 @pytest.fixture
 def conn(monkeypatch, tmp_path):
     monkeypatch.setattr(licensing, "EDITION", {"release_public_key": PUBLIC,
-                                               "lemonsqueezy": {"store_id": "999", "products": {"111": "pro"}}})
+                                               "polar": {"organization_id": "org-ardea", "benefits": {"ben-pro": "pro"}}})
     monkeypatch.setattr(licensing, "OFFLINE_FILE", tmp_path / "ardea.license")
     server = FakeServer()
     monkeypatch.setattr(licensing, "_call", server)
@@ -74,13 +75,14 @@ def test_activate_then_daily_validate(conn, monkeypatch):
     monkeypatch.setenv("ARDEA_LICENSE_KEY", "KEY-1")
     r = licensing.refresh(conn)
     assert licensing.effective_tier(r) == "pro" and licensing.tier() == "pro"
-    assert conn.server.calls[0][0] == "activate" and conn.server.calls[0][1]["instance_name"].startswith("Ardea ")
-    assert r["instance_id"] == "inst-1" and r["customer"] == "Acme" and r["last_error"] is None
+    assert conn.server.calls[0][0] == "activate" and conn.server.calls[0][1]["label"].startswith("Ardea ")
+    assert r["instance_id"] == "act-1" and r["customer"] == "Acme" and r["last_error"] is None
     assert timedelta(days=29) < r["valid_until"] - datetime.now(timezone.utc) <= timedelta(days=30)
     licensing.refresh(conn)                                     # not due yet: no call
     assert len(conn.server.calls) == 1
     licensing.refresh(conn, force=True)
-    assert conn.server.calls[-1] == ("validate", {"license_key": "KEY-1", "instance_id": "inst-1"})
+    assert conn.server.calls[-1] == ("validate", {"key": "KEY-1", "organization_id": "org-ardea",
+                                                  "activation_id": "act-1"})
 
 
 def test_server_down_keeps_the_last_good_result(conn, monkeypatch):
@@ -103,7 +105,7 @@ def test_ended_licence_keeps_features_72_hours_then_stops(conn, monkeypatch):
     r = licensing.refresh(conn, force=True)
     left = r["valid_until"] - datetime.now(timezone.utc)
     assert licensing.effective_tier(r) == "pro" and timedelta(hours=71) < left <= timedelta(hours=72)
-    assert r["status"] == "invalid" and "expired" in r["last_error"]
+    assert r["status"] == "invalid" and "revoked" in r["last_error"]
     r2 = licensing.refresh(conn, force=True)                    # a second "no" never extends the grace
     assert r2["valid_until"] <= r["valid_until"]
 

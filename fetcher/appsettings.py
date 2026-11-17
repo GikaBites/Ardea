@@ -62,7 +62,7 @@ _VERDICTS = tuple((v, v) for v in ("True Positive", "Needs Human Review", "Benig
 FIELDS = [
     # Licence
     Field("ARDEA_LICENSE_KEY", "licence", "Licence key", "secret",
-          "From your Lemon Squeezy receipt. Leave empty for the free Community edition."),
+          "From your purchase e-mail. Leave empty for the free Community edition."),
     Field("ARDEA_LICENSE_OFFLINE", "licence", "Offline licence file", "lines",
           "For servers without internet access: paste the contents of the ardea.license file we sent you."),
     Field("ARDEA_LICENSE_PROXY", "licence", "Proxy for the licence check", "url",

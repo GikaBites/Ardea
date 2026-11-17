@@ -202,7 +202,7 @@
 	<div class="card shadow-sm mb-3 license-card"><div class="card-body">
 		<h2 class="h6">Edition: <span class="license-edition license-edition--{{ license.edition }}">{{ editions_names[license.edition] }}</span></h2>
 		<p class="mb-1 text-secondary small">
-			{% if license.source == "lemonsqueezy" %}Licence key{% if license.product %}: {{ license.product }}{% endif %}{% if license.customer %} · {{ license.customer }}{% endif %}
+			{% if license.source == "key" %}Licence key{% if license.product %}: {{ license.product }}{% endif %}{% if license.customer %} · {{ license.customer }}{% endif %}
 			{% elif license.source == "offline" %}Offline licence{% if license.customer %} · {{ license.customer }}{% endif %}
 			{% else %}No licence: the free Community edition.{% endif %}
 			{% if license.edition != "community" and license.valid_until %} · valid until {{ license.valid_until | localtime }}{% endif %}

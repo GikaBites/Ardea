@@ -25,7 +25,7 @@ def set_license(tier, valid_hours=24 * 30):
         c.execute(text("""UPDATE license_state SET tier = :t, source = :s,
                           valid_until = CASE WHEN CAST(:h AS INT) IS NULL THEN NULL ELSE NOW() + make_interval(hours => CAST(:h AS INT)) END
                           WHERE id = 1"""),
-                  {"t": tier, "s": "none" if tier == "community" else "lemonsqueezy", "h": valid_hours})
+                  {"t": tier, "s": "none" if tier == "community" else "key", "h": valid_hours})
     editions.reset_cache()
 
 

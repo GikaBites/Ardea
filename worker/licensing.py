@@ -10,9 +10,10 @@ What a licence changes, and what it never changes:
 Where the licence comes from (first match wins):
   1. an offline licence file (/app/license/ardea.license), signed with the Ardea release key.
      For installations without internet access; issued by hand.
-  2. a Lemon Squeezy licence key in ARDEA_LICENSE_KEY. The worker activates it once (one activation
-     per installation) and re-validates it every 24 h (through ARDEA_LICENSE_PROXY, or EGRESS_PROXY, if set). Only the key and an
-     installation name are sent; no alert data ever goes to the licence server.
+  2. a licence key from the Ardea store (Polar) in ARDEA_LICENSE_KEY or on the Settings page. The worker
+     activates it once (one activation per installation) and re-validates it every 24 h (through
+     ARDEA_LICENSE_PROXY, or EGRESS_PROXY, if set). Only the key, the store's id and an installation name
+     are sent; no alert data ever goes to the licence server.
   3. nothing: Community.
 
 If the licence server cannot be reached, the last good result stays valid for 30 days. If the server
@@ -61,7 +62,6 @@ GRACE_UNREACHABLE = timedelta(days=30)
 GRACE_INVALID = timedelta(hours=72)
 CHECK_EVERY = timedelta(hours=24)
 RETRY_FAILED_CHECK = timedelta(hours=1)
-API = "https://api.lemonsqueezy.com/v1/licenses"
 OFFLINE_FILE = pathlib.Path(os.getenv("ARDEA_LICENSE_FILE", "/app/license/ardea.license"))
 _LOCK = 7270030
 
@@ -203,15 +203,33 @@ def read_offline_license(path: pathlib.Path = None) -> dict | None:
     return payload
 
 
-# --------------------------------------------------------------------------- Lemon Squeezy
+# --------------------------------------------------------------------------- Polar (online licence keys)
+# Polar is the reseller (merchant of record) and issues the licence keys. edition.json pins which Polar
+# organisation and which licence-key benefits are Ardea editions; release.py set-store writes it.
+POLAR_API = {"production": "https://api.polar.sh", "sandbox": "https://sandbox-api.polar.sh"}
+PRODUCT_NAMES = {"pro": "Ardea Pro", "msp": "Ardea MSP"}
+
+
 def _proxies():
     proxy = appsettings.env("ARDEA_LICENSE_PROXY") or appsettings.env("EGRESS_PROXY")
     return {"https": proxy, "http": proxy} if proxy else None
 
 
-def _call(endpoint: str, data: dict) -> dict:
+def _polar() -> tuple[str, dict]:
+    cfg = EDITION.get("polar") or {}
+    if not cfg.get("organization_id") or not cfg.get("benefits"):
+        raise LicenseInvalid("this build has no store configured (run release.py set-store)")
+    base = POLAR_API.get(cfg.get("environment") or "production")
+    if base is None:
+        raise LicenseInvalid("this build has an unknown licence server configured")
+    return base, cfg
+
+
+def _call(path: str, data: dict) -> tuple[int, dict]:
+    """POST to the licence server. Raises LicenseUnreachable for network errors, 429 and 5xx."""
+    base, _ = _polar()
     try:
-        r = requests.post(f"{API}/{endpoint}", data=data, headers={"Accept": "application/json"},
+        r = requests.post(f"{base}{path}", json=data, headers={"Accept": "application/json"},
                           timeout=15, proxies=_proxies())
     except requests.RequestException as exc:
         raise LicenseUnreachable(f"licence server not reachable ({type(exc).__name__})") from None
@@ -223,31 +241,63 @@ def _call(endpoint: str, data: dict) -> dict:
         raise LicenseUnreachable(f"licence server answered HTTP {r.status_code} without JSON") from None
     if not isinstance(body, dict):
         raise LicenseUnreachable("unexpected answer from the licence server")
-    body["_http_status"] = r.status_code
-    return body
+    return r.status_code, body
 
 
-def interpret(body: dict, ok_field: str) -> dict:
-    """Map a Lemon Squeezy activate/validate answer to an edition, or raise LicenseInvalid."""
-    lk = body.get("license_key") or {}
-    meta = body.get("meta") or {}
-    if not body.get(ok_field):
-        raise LicenseInvalid(str(body.get("error") or "licence key is not valid")[:200])
-    if lk.get("status") != "active":
-        raise LicenseInvalid(f"licence key is {lk.get('status') or 'not active'}")
-    ls = EDITION.get("lemonsqueezy") or {}
-    if not ls.get("store_id"):
-        raise LicenseInvalid("this build has no store configured (run release.py set-store)")
-    if str(meta.get("store_id")) != str(ls["store_id"]):
+def _detail(body: dict) -> str:
+    d = body.get("detail")
+    if isinstance(d, list) and d:
+        d = d[0].get("msg") if isinstance(d[0], dict) else d[0]
+    return str(d or body.get("error") or "")[:160]
+
+
+def interpret(lk: dict, activation_id: str | None) -> dict:
+    """Map a Polar licence key to an edition, or raise LicenseInvalid."""
+    _, cfg = _polar()
+    status = str(lk.get("status") or "")
+    if status != "granted":
+        raise LicenseInvalid(f"licence key is {status or 'not active'}")
+    if lk.get("organization_id") and str(lk["organization_id"]) != str(cfg["organization_id"]):
         raise LicenseInvalid("this key is not an Ardea licence")
-    tier_name = (ls.get("products") or {}).get(str(meta.get("product_id")))
+    tier_name = (cfg.get("benefits") or {}).get(str(lk.get("benefit_id")))
     if tier_name not in ("pro", "msp"):
         raise LicenseInvalid("this key is for a product that is not an Ardea edition")
+    customer = lk.get("customer") or {}
     return {"tier": tier_name, "status": "active",
-            "customer": str(meta.get("customer_name") or meta.get("customer_email") or "")[:120] or None,
-            "product": str(meta.get("variant_name") or meta.get("product_name") or tier_name)[:120],
-            "expires_at": _parse_time(lk.get("expires_at")),
-            "instance_id": (body.get("instance") or {}).get("id")}
+            "customer": str(customer.get("name") or customer.get("email") or "")[:120] or None,
+            "product": PRODUCT_NAMES[tier_name], "expires_at": _parse_time(lk.get("expires_at")),
+            "instance_id": activation_id}
+
+
+def check_key(key: str, activation_id: str | None, label: str) -> dict:
+    """Activate the key for this installation (first time) or validate it (afterwards).
+    Raises LicenseUnreachable or LicenseInvalid."""
+    _, cfg = _polar()
+    org = str(cfg["organization_id"])
+    if not activation_id:
+        status, body = _call("/v1/customer-portal/license-keys/activate",
+                             {"key": key, "organization_id": org, "label": label[:100]})
+        if status in (200, 201):
+            return interpret(body.get("license_key") or {}, str(body.get("id") or "") or None)
+        detail = _detail(body)
+        if status == 404:
+            raise LicenseInvalid("licence key not found")
+        if "activation" not in detail.lower() or "limit" in detail.lower():
+            if "limit" in detail.lower():
+                raise LicenseInvalid("this key is already in use on another installation: free it in your "
+                                     "customer portal, then check again")
+            raise LicenseInvalid(detail or f"licence key not accepted (HTTP {status})")
+        # a key without activation limits cannot be activated: validate it as it is
+    payload = {"key": key, "organization_id": org}
+    if activation_id:
+        payload["activation_id"] = activation_id
+    status, body = _call("/v1/customer-portal/license-keys/validate", payload)
+    if status == 404:
+        raise LicenseInvalid("this installation's activation was removed, or the key does not exist"
+                             if activation_id else "licence key not found")
+    if status != 200:
+        raise LicenseInvalid(_detail(body) or f"licence key not accepted (HTTP {status})")
+    return interpret(body, activation_id)
 
 
 def _key_hash(key: str) -> str:
@@ -305,7 +355,7 @@ def _refresh(conn, force: bool):
                 valid_until=offline["_expires"], last_ok_at=now, last_checked_at=now, last_error=None)
         return
 
-    # 2. Lemon Squeezy key
+    # 2. licence key (Polar)
     key = _license_key()
     if not key:
         _update(conn, tier="community", source="none", status=None, customer=None, product=None, key_hash=None,
@@ -319,27 +369,21 @@ def _refresh(conn, force: bool):
     if not due:
         return
     try:
-        if same_key and row["instance_id"]:
-            info = interpret(_call("validate", {"license_key": key, "instance_id": row["instance_id"]}), "valid")
-            info["instance_id"] = info["instance_id"] or row["instance_id"]
-        else:
-            info = interpret(_call("activate", {"license_key": key,
-                                                "instance_name": f"Ardea {row['install_id'][:12]}"}),
-                             "activated")
+        info = check_key(key, row["instance_id"] if same_key else None, f"Ardea {row['install_id'][:12]}")
     except LicenseUnreachable as exc:
         log.warning("licence check postponed: %s", exc)
         fields = {"last_checked_at": now, "last_error": str(exc)}
         if not same_key:                       # a new key that was never confirmed grants nothing yet
-            fields.update(tier="community", source="lemonsqueezy", status="unverified", key_hash=key_hash,
+            fields.update(tier="community", source="key", status="unverified", key_hash=key_hash,
                           instance_id=None, valid_until=None, customer=None, product=None, expires_at=None)
         _update(conn, **fields)
         return
     except LicenseInvalid as exc:
         log.error("licence key not accepted: %s", exc)
-        keep = row["valid_until"] if same_key and row["valid_until"] and row["source"] == "lemonsqueezy" else None
-        _update(conn, source="lemonsqueezy", status="invalid", key_hash=key_hash,
+        keep = row["valid_until"] if same_key and row["valid_until"] and row["source"] == "key" else None
+        _update(conn, source="key", status="invalid", key_hash=key_hash,
                 # an installation removed in the customer portal is activated again on the next check
-                instance_id=None if not same_key or "instance" in str(exc).lower() else row["instance_id"],
+                instance_id=None if not same_key or "activation" in str(exc).lower() else row["instance_id"],
                 valid_until=min(keep, now + GRACE_INVALID) if keep else None,
                 last_checked_at=now, last_error=str(exc))
         if not same_key:
@@ -349,7 +393,7 @@ def _refresh(conn, force: bool):
     valid_until = now + GRACE_UNREACHABLE
     if info["expires_at"]:
         valid_until = min(valid_until, info["expires_at"])
-    _update(conn, tier=info["tier"], source="lemonsqueezy", status="active", customer=info["customer"],
+    _update(conn, tier=info["tier"], source="key", status="active", customer=info["customer"],
             product=info["product"], key_hash=key_hash, instance_id=info["instance_id"],
             expires_at=info["expires_at"], valid_until=valid_until, last_ok_at=now, last_checked_at=now,
             last_error=None)

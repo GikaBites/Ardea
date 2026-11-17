@@ -21,7 +21,7 @@ from alert_context import build_context
 KEY = Ed25519PrivateKey.generate()
 PUBLIC = base64.b64encode(KEY.public_key().public_bytes(serialization.Encoding.Raw,
                                                         serialization.PublicFormat.Raw)).decode()
-STORE = {"store_id": "999", "products": {"111": "pro", "222": "msp"}}
+STORE = {"organization_id": "org-ardea", "environment": "production", "benefits": {"ben-pro": "pro", "ben-msp": "msp"}}
 OFFICE_RULE = "a624863f-a70d-417f-a7d2-7a404638d47f"
 CASE = load_case(pathlib.Path(__file__).parent / "samples" / "cases" / "forfiles_backup_benign.json")
 
@@ -33,42 +33,89 @@ def signed(purpose, payload, key=KEY):
 
 @pytest.fixture(autouse=True)
 def _edition(monkeypatch):
-    monkeypatch.setattr(licensing, "EDITION", {"release_public_key": PUBLIC, "lemonsqueezy": STORE})
+    monkeypatch.setattr(licensing, "EDITION", {"release_public_key": PUBLIC, "polar": STORE})
 
 
-def ls_answer(ok_field="valid", ok=True, status="active", store=999, product=111, expires=None, error=None):
-    return {ok_field: ok, "error": error,
-            "license_key": {"id": 1, "status": status, "key": "xxx", "expires_at": expires},
-            "instance": {"id": "inst-1", "name": "Ardea x"},
-            "meta": {"store_id": store, "product_id": product, "product_name": "Ardea Pro",
-                     "variant_name": "Pro yearly", "customer_name": "Acme Ltd", "customer_email": "it@acme.example"}}
+def polar_key(status="granted", org="org-ardea", benefit="ben-pro", expires=None):
+    """A licence key as Polar's validate endpoint returns it."""
+    return {"id": "lk-1", "organization_id": org, "status": status, "benefit_id": benefit,
+            "customer": {"name": "Acme Ltd", "email": "it@acme.example"}, "expires_at": expires,
+            "key": "XXXX", "activation": None}
 
 
 # --------------------------------------------------------------------------- licence answers
-def test_interpret_maps_store_and_product_to_edition():
-    info = licensing.interpret(ls_answer(), "valid")
-    assert info["tier"] == "pro" and info["product"] == "Pro yearly" and info["customer"] == "Acme Ltd"
-    assert licensing.interpret(ls_answer(product=222), "valid")["tier"] == "msp"
-    exp = licensing.interpret(ls_answer(expires="2027-01-31T00:00:00.000000Z"), "valid")["expires_at"]
+def test_interpret_maps_store_and_benefit_to_edition():
+    info = licensing.interpret(polar_key(), "act-1")
+    assert info["tier"] == "pro" and info["product"] == "Ardea Pro" and info["customer"] == "Acme Ltd"
+    assert info["instance_id"] == "act-1"
+    assert licensing.interpret(polar_key(benefit="ben-msp"), None)["tier"] == "msp"
+    exp = licensing.interpret(polar_key(expires="2027-01-31T00:00:00Z"), None)["expires_at"]
     assert exp == datetime(2027, 1, 31, tzinfo=timezone.utc)
 
 
 @pytest.mark.parametrize("answer,reason", [
-    (ls_answer(ok=False, error="license_key not found."), "not found"),
-    (ls_answer(status="expired"), "expired"),
-    (ls_answer(status="disabled"), "disabled"),
-    (ls_answer(store=12345), "not an Ardea licence"),          # someone else's Lemon Squeezy key
-    (ls_answer(product=333), "not an Ardea edition"),
+    (polar_key(status="revoked"), "revoked"),                 # subscription ended or refunded
+    (polar_key(status="disabled"), "disabled"),
+    (polar_key(org="someone-else"), "not an Ardea licence"),  # a key from another Polar store
+    (polar_key(benefit="ben-other"), "not an Ardea edition"),
 ])
 def test_interpret_rejects(answer, reason):
     with pytest.raises(licensing.LicenseInvalid, match=reason):
-        licensing.interpret(answer, "valid")
+        licensing.interpret(answer, None)
 
 
 def test_build_without_store_grants_nothing(monkeypatch):
-    monkeypatch.setattr(licensing, "EDITION", {"release_public_key": PUBLIC, "lemonsqueezy": {}})
+    monkeypatch.setattr(licensing, "EDITION", {"release_public_key": PUBLIC, "polar": {}})
     with pytest.raises(licensing.LicenseInvalid, match="no store"):
-        licensing.interpret(ls_answer(), "valid")
+        licensing.interpret(polar_key(), None)
+
+
+def test_unknown_licence_server_is_refused(monkeypatch):
+    monkeypatch.setattr(licensing, "EDITION", {"polar": {**STORE, "environment": "https://evil.example"}})
+    with pytest.raises(licensing.LicenseInvalid, match="unknown licence server"):
+        licensing.check_key("K", None, "Ardea x")
+
+
+class FakePolar:
+    def __init__(self, answers):
+        self.answers, self.calls = list(answers), []
+
+    def __call__(self, path, data):
+        self.calls.append((path, dict(data)))
+        return self.answers.pop(0)
+
+
+def test_check_key_activates_then_validates(monkeypatch):
+    fake = FakePolar([(200, {"id": "act-9", "license_key": polar_key()}), (200, polar_key())])
+    monkeypatch.setattr(licensing, "_call", fake)
+    info = licensing.check_key("KEY", None, "Ardea abc")
+    assert info["instance_id"] == "act-9" and fake.calls[0][0].endswith("/activate")
+    assert fake.calls[0][1] == {"key": "KEY", "organization_id": "org-ardea", "label": "Ardea abc"}
+    licensing.check_key("KEY", "act-9", "Ardea abc")
+    assert fake.calls[1] == ("/v1/customer-portal/license-keys/validate",
+                             {"key": "KEY", "organization_id": "org-ardea", "activation_id": "act-9"})
+
+
+def test_check_key_without_activation_limit_falls_back_to_validate(monkeypatch):
+    fake = FakePolar([(403, {"detail": "This license key does not support activations."}), (200, polar_key())])
+    monkeypatch.setattr(licensing, "_call", fake)
+    assert licensing.check_key("KEY", None, "x")["tier"] == "pro" and len(fake.calls) == 2
+
+
+@pytest.mark.parametrize("answers,reason", [
+    ([(403, {"detail": "License key activation limit already reached"})], "already in use"),
+    ([(404, {"detail": "Not found"})], "not found"),
+])
+def test_check_key_refusals(monkeypatch, answers, reason):
+    monkeypatch.setattr(licensing, "_call", FakePolar(answers))
+    with pytest.raises(licensing.LicenseInvalid, match=reason):
+        licensing.check_key("KEY", None, "x")
+
+
+def test_removed_activation_is_reported_so_it_is_activated_again(monkeypatch):
+    monkeypatch.setattr(licensing, "_call", FakePolar([(404, {"detail": "Not found"})]))
+    with pytest.raises(licensing.LicenseInvalid, match="activation"):
+        licensing.check_key("KEY", "act-gone", "x")
 
 
 def test_effective_tier_respects_valid_until():
@@ -106,7 +153,7 @@ def test_offline_licence_rejected(tmp_path, make):
 
 
 def test_build_without_release_key_trusts_nothing(tmp_path, monkeypatch):
-    monkeypatch.setattr(licensing, "EDITION", {"release_public_key": "", "lemonsqueezy": STORE})
+    monkeypatch.setattr(licensing, "EDITION", {"release_public_key": "", "polar": STORE})
     with pytest.raises(licensing.LicenseInvalid, match="no release key"):
         licensing.verify_signed(signed("pack", {"version": "1"}), "pack")
 
