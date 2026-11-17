@@ -60,13 +60,17 @@ triaged.
 | Customer portal (read-only logins per customer), usage export for billing | | | ✓ |
 | Run Ardea for your customers, [your own branding](#own-branding) | | | ✓ |
 
+**Pro and MSP open for purchase soon** at [ardeasecurity.com](https://ardeasecurity.com/#pricing). Until then, the
+Community edition is free and complete for one cluster; for early access to the paid features, write to
+support@ardeasecurity.com.
+
 **Safety is the same in every edition.** A missing, expired or unreachable licence never stops triage and
 never weakens a guardrail: Ardea falls back to Community, keeps every per-user restriction, and alerts
 already queued are still triaged. If the licence server cannot be reached, the paid features stay on for
 30 days.
 
-**Activating a licence.** Put the key from your purchase e-mail in `.env` as `ARDEA_LICENSE_KEY` and run
-`docker compose up -d worker`. Check it with `docker compose exec worker python licensing.py`; admins also
+**Activating a licence.** As an admin, paste the key from your purchase e-mail under **Settings → Licence** and
+click **Check the licence now**. (Or put it in `.env` as `ARDEA_LICENSE_KEY` and run `docker compose up -d worker`.) Check it with `docker compose exec worker python licensing.py`; admins also
 see the edition on the **Users** page. The worker contacts `api.lemonsqueezy.com` once a day with only the
 key and an installation name, never alert data. With the egress lockdown, start the `egress` profile and set
 `ARDEA_LICENSE_PROXY=http://egress-proxy:3128`. For a network without internet access, ask for an

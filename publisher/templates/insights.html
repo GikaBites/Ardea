@@ -55,7 +55,8 @@
 		<p>One page per week, month or quarter: alerts triaged, closed automatically, sent to a person, true positives found, analyst time saved, the noisiest rules, and how often analysts agreed. Print it, save it as PDF, or have it e-mailed every month.</p>
 		<ul><li>Justify the budget with numbers from your own alerts</li><li>Per-customer reports with your logo in the MSP edition</li></ul>
 		{% endif %}
-		<p class="ins-locked__cta">This installation runs the {{ edition | capitalize }} edition. {% if g.user.role == "admin" %}Add a {{ needs | capitalize }} licence key to <code>.env</code> as <code>ARDEA_LICENSE_KEY</code> to switch it on.{% else %}Ask your administrator about upgrading.{% endif %}</p>
+		<p class="ins-locked__cta">This installation runs the {{ edition | capitalize }} edition. {% if g.user.role == "admin" %}Add a {{ needs | capitalize }} licence key under <a href="/admin/settings/licence">Settings → Licence</a> to switch it on.{% else %}Ask your administrator about upgrading.{% endif %}
+			<a href="https://ardeasecurity.com/#pricing" target="_blank" rel="noopener">See the editions and prices</a></p>
 	</section>
 
 	{% elif empty_scope %}
