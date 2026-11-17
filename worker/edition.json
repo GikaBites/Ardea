@@ -1,11 +1,12 @@
 {
   "_comment": "Written by the release kit (release.py set-key / set-store). Public values only: no secrets.",
   "release_public_key": "NdxNbFZ2zSveJ0V8k5Wlt6vCfS/vwVgK9YgnQMsCIPE=",
-  "lemonsqueezy": {
-    "store_id": "525170",
-    "products": {
-      "1531208": "pro",
-      "1531221": "msp"
+  "polar": {
+    "organization_id": "8098be59-d289-44d9-a0dd-84911c0dd775",
+    "environment": "production",
+    "benefits": {
+      "4f9b9c32-bfd7-4fa7-bff5-7aa50c302063": "pro",
+      "d71829b1-47ab-4a39-b9ea-a95bef9a1b6c": "msp"
     }
   }
 }
