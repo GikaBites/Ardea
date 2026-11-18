@@ -189,6 +189,11 @@
 			a.rel = "noopener noreferrer";
 			footer.appendChild(a);
 		}
+		if (alert.incident) {                       // Pro: this alert is part of a larger incident
+			const inc = el("a", "ar-button ar-button--incident", `Part of an incident: ${alert.incident[1]} alerts`);
+			inc.href = `/incidents/${encodeURIComponent(alert.incident[0])}`;
+			footer.appendChild(inc);
+		}
 		const idTag = el("button", "ar-id", `ID ${alert.alert_id.slice(0, 12)}…`);
 		idTag.type = "button";
 		idTag.title = "Copy the full alert ID";

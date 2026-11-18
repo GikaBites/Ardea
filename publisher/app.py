@@ -30,9 +30,10 @@ import appsettings
 import auth
 import demo
 import editions
+import incidents
 import settings_admin
 from db import (AlertRepository, add_feedback, alert_siem, ensure_schema, get_feedback,  # type: ignore
-                get_session, get_trail, list_siems)
+                get_connection, get_session, get_trail, list_siems)
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -69,6 +70,9 @@ def _bootstrap():
             demo.seed(auth.engine)                        # ARDEA_DEMO only: sample data, user demo
             auth.ensure_schema_and_admin()
             ensure_schema()                               # multi-SIEM columns (if the fetcher has not added them yet)
+            with get_connection() as conn:                # Settings page, assignments and pack tables
+                with conn.transaction():
+                    appsettings.ensure_schema(conn.execute)
             return
         except Exception as exc:                      # database still starting
             log.warning("auth setup failed (%s), retrying", type(exc).__name__)
@@ -210,10 +214,53 @@ def current_brand():
     return {"name": name or "Ardea", "logo": bool(logo)}
 
 
+_alarm_cache = {"at": 0.0, "rows": []}
+
+
+def _source_alarm_rows():
+    """SIEMs that went quiet, unreachable ones, and quiet watched hosts (written by the worker)."""
+    if time.monotonic() - _alarm_cache["at"] < 30:
+        return _alarm_cache["rows"]
+    rows = []
+    try:
+        with get_connection() as conn:
+            if conn.execute("SELECT to_regclass('public.source_health') AS t").fetchone()["t"]:
+                rows = conn.execute("""SELECT h.siem, h.status, h.detail, h.quiet_hosts, s.name FROM source_health h
+                                       LEFT JOIN siems s ON s.id = h.siem
+                                       WHERE h.status <> 'ok' OR h.quiet_hosts <> '[]'::jsonb
+                                       ORDER BY h.siem""").fetchall()
+    except Exception:
+        log.exception("could not read source_health")
+    _alarm_cache.update(at=time.monotonic(), rows=rows)
+    return rows
+
+
+def source_alarms(user):
+    """Banner lines for this user: only SIEMs they may see. Pro (source_health)."""
+    if not user or not editions.has("source_health"):
+        return []
+    out = []
+    for r in _source_alarm_rows():
+        if not auth.can_see_siem(user, r["siem"]):
+            continue
+        name = r["name"] or r["siem"]
+        if r["status"] == "silent":
+            out.append(f"{name} has sent {r['detail'] or 'no events'}. Alerts cannot fire without events.")
+        elif r["status"] == "unreachable":
+            out.append(f"{name} {r['detail'] or 'cannot be reached'}. Its alerts are not being collected.")
+        hosts = [h["host"] for h in (r["quiet_hosts"] or [])]
+        if hosts and editions.has("host_watch"):
+            more = f" and {len(hosts) - 5} more" if len(hosts) > 5 else ""
+            out.append(f"{name}: watched host{'s' if len(hosts) > 1 else ''} {', '.join(hosts[:5])}{more} "
+                       f"stopped sending events.")
+    return out
+
+
 @app.context_processor
 def inject_brand():
     brand = current_brand()
-    return {"brand": brand, "product_name": brand["name"] if brand else "Ardea", "demo_mode": demo.ENABLED}
+    return {"brand": brand, "product_name": brand["name"] if brand else "Ardea", "demo_mode": demo.ENABLED,
+            "source_alarms": source_alarms(getattr(g, "user", None))}
 
 
 @app.get("/branding/logo")
@@ -513,7 +560,7 @@ def format_timestamp(value):
     return f"{value.day:02d}/{value.month:02d}/{value.year} {value.hour:02d}:{value.minute:02d}:{value.second:02d}"
 
 
-_cache = {"at": 0.0, "alerts": [], "siems": []}
+_cache = {"at": 0.0, "alerts": [], "siems": [], "incidents": None}
 _cache_lock = threading.Lock()
 CACHE_SECONDS = 5
 
@@ -525,8 +572,19 @@ def load_alerts():
             return _cache["alerts"]
         _cache["siems"] = _load_siems()
         _cache["alerts"] = _load_alerts_uncached(_cache["siems"])
+        _cache["incidents"] = None
         _cache["at"] = time.monotonic()
         return _cache["alerts"]
+
+
+def load_incidents():
+    """(all incidents, alert_id -> (incident id, size)) for the current alert cache (Pro: Incidents)."""
+    alerts = load_alerts()
+    with _cache_lock:
+        if _cache["incidents"] is None or _cache["incidents"][0] is not alerts:
+            built = incidents.build(alerts)
+            _cache["incidents"] = (alerts, built, incidents.alert_index(built))
+        return _cache["incidents"][1], _cache["incidents"][2]
 
 
 def load_siems():
@@ -601,6 +659,7 @@ def _load_alerts_uncached(siems=()):
             "post_url": safe_url(result.get("alert_url"), siem.get("kibana_host")),
             "siem": siem_id,
             "siem_name": siem.get("name") or siem_id,
+            "user": str(row.user_name or "")[:200],
             "occurrences": result.get("occurrences") or 1,
             "steps": (result.get("investigation") or {}).get("steps"),
             "timestamp": format_timestamp(row.timestamp),
@@ -735,11 +794,18 @@ def verdict_stats(alerts, filters):
             "escalate": sum(1 for a in base if a["should_escalate"])}
 
 
-def serialize_alert(alert):
-    return {key: alert[key] for key in (
+def serialize_alert(alert, incident_of=None):
+    out = {key: alert[key] for key in (
         "alert_id", "rule_name", "hostname", "post_url", "timestamp", "timestamp_iso", "verdict", "severity",
         "siem", "siem_name",
         "confidence_score", "should_escalate", "occurrences", "steps", "detail")}
+    if incident_of:
+        out["incident"] = incident_of.get(alert["alert_id"])          # [id, number of alerts] or None
+    return out
+
+
+def _incident_of():
+    return load_incidents()[1] if editions.has("incidents") else None
 
 
 def _distinct_values(alerts, key, exclude_unknown=True):
@@ -828,10 +894,11 @@ def get_alerts_page():
     all_alerts = apply_filters(mine, filters)
     page = all_alerts[offset : offset + limit]
     next_offset = offset + len(page)
+    incident_of = _incident_of()
 
     return jsonify(
         {
-            "alerts": [serialize_alert(alert) for alert in page],
+            "alerts": [serialize_alert(alert, incident_of) for alert in page],
             "total": len(all_alerts),
             "next_offset": next_offset,
             "has_more": next_offset < len(all_alerts),
@@ -878,7 +945,8 @@ def stream_alerts():
                 if len(new_alerts) > PAGE_SIZE:
                     new_alerts = new_alerts[:PAGE_SIZE]
                 last_seen_id = new_alerts[0]["alert_id"]
-                payload = json.dumps({"alerts": [serialize_alert(alert) for alert in new_alerts],
+                incident_of = _incident_of()
+                payload = json.dumps({"alerts": [serialize_alert(alert, incident_of) for alert in new_alerts],
                                       "stats": verdict_stats(visible_alerts(load_alerts(), user), filters)})
                 yield f"event: alerts\ndata: {payload}\n\n"
             else:

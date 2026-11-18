@@ -26,6 +26,8 @@ class Alert(Base):
     alert_id: Mapped[str] = mapped_column(Text, primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     siem: Mapped[str | None] = mapped_column(Text)
+    host_name: Mapped[str | None] = mapped_column(Text)
+    user_name: Mapped[str | None] = mapped_column(Text)
 
     triage_result: Mapped["TriageResult"] = relationship(
         back_populates="alert",
@@ -56,6 +58,8 @@ class AlertRow:
     created_at: datetime | None
     timestamp: datetime | None
     siem: str | None = None
+    host_name: str | None = None
+    user_name: str | None = None
 
 
 def _database_url() -> str:
@@ -97,6 +101,8 @@ class AlertRepository:
                 created_at=created_at,
                 timestamp=alert.timestamp,
                 siem=alert.siem,
+                host_name=alert.host_name,
+                user_name=alert.user_name,
             )
             for alert, response, created_at in rows
         ]

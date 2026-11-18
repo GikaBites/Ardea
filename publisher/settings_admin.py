@@ -492,7 +492,7 @@ def publisher_value(name: str, default: str = "") -> str:
 
 
 # --------------------------------------------------------------------------- pages
-TEST_KINDS = re.compile(r"^(llm|licence|pack:install|siem:[a-z0-9][a-z0-9_-]{0,31}|notify:(smtp|ntfy|slack|teams|webhook|jira|thehive))$")
+TEST_KINDS = re.compile(r"^(llm|licence|pack:install|digest|health|siem:[a-z0-9][a-z0-9_-]{0,31}|notify:(smtp|ntfy|slack|teams|webhook|jira|thehive))$")
 MAX_PACK = 2 * 1024 * 1024
 
 

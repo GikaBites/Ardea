@@ -341,6 +341,91 @@ SENDERS = {"smtp": send_smtp, "ntfy": send_ntfy, "slack": send_slack, "teams": s
            "webhook": send_webhook, "jira": send_jira, "thehive": send_thehive}
 
 
+# --------------------------------------------------------------------------- system messages
+MESSAGE_CHANNELS = ("smtp", "ntfy", "slack", "teams", "webhook")      # Jira / TheHive take verdicts only
+
+
+def send_message(kind: str, title: str, body: str, link: str | None = None, urgent: bool = False,
+                 channels=None) -> list[tuple[str, str | None]]:
+    """A message that is not about one alert (silent-source alarm, daily digest) to the configured
+    channels. Returns [(channel, error or None)]. Never raises."""
+    title = _line(f"[{_brand()}] {title}", 200)
+    body = str(body)[:6000] + (f"\n\n{_brand()}: {link}" if link else "")
+    results = []
+    for channel in channels if channels is not None else config.NOTIFY_CHANNELS:
+        if channel not in MESSAGE_CHANNELS:
+            continue
+        try:
+            _MESSAGE_SENDERS[channel](kind, title, body, link, urgent)
+            results.append((channel, None))
+        except NotifyError as exc:
+            results.append((channel, str(exc)))
+        except Exception as exc:                       # a broken channel must not stop the others
+            results.append((channel, type(exc).__name__))
+    return results
+
+
+def _msg_smtp(kind, title, body, link, urgent):
+    send_smtp({"severity": "High" if urgent else "Low"}, None, title, body)
+
+
+def _msg_ntfy(kind, title, body, link, urgent):
+    base = config.env("NTFY_URL", "https://ntfy.sh").rstrip("/")
+    topic = config.env("NTFY_TOPIC")
+    if not topic:
+        raise NotifyError("NTFY_TOPIC must be set")
+    msg = {"topic": topic, "title": title, "message": body[:3500], "priority": 4 if urgent else 3,
+           "tags": ["warning"] if urgent else ["clipboard"]}
+    if link:
+        msg["click"] = link
+    headers = {"Authorization": f"Bearer {config.env('NTFY_TOKEN')}"} if config.env("NTFY_TOKEN") else {}
+    _post("ntfy", base, json=msg, headers=headers, proxy=config.env("NTFY_PROXY"))
+
+
+def _msg_slack(kind, title, body, link, urgent):
+    url = config.env("SLACK_WEBHOOK_URL")
+    if not url:
+        raise NotifyError("SLACK_WEBHOOK_URL must be set")
+    blocks = [{"type": "header", "text": {"type": "plain_text", "text": title[:150]}},
+              {"type": "section", "text": {"type": "mrkdwn",
+                                           "text": FENCE + _slack_escape(_unfenced(body))[:2800] + FENCE}}]
+    if link:
+        blocks.append({"type": "actions", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": f"Open {_brand()}"}, "url": link}]})
+    _post("slack", url, json={"text": title, "blocks": blocks})
+
+
+def _msg_teams(kind, title, body, link, urgent):
+    url = config.env("TEAMS_WEBHOOK_URL")
+    if not url:
+        raise NotifyError("TEAMS_WEBHOOK_URL must be set")
+    card = {"$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard",
+            "version": "1.4",
+            "body": [{"type": "TextBlock", "text": _md_neutral(title), "weight": "Bolder", "size": "Medium",
+                      "wrap": True},
+                     {"type": "TextBlock", "text": _md_neutral(body)[:3500], "wrap": True, "fontType": "Monospace"}],
+            "actions": [{"type": "Action.OpenUrl", "title": f"Open {_brand()}", "url": link}] if link else []}
+    _post("teams", url, json={"type": "message", "attachments": [
+        {"contentType": "application/vnd.microsoft.card.adaptive", "content": card}]})
+
+
+def _msg_webhook(kind, title, body, link, urgent):
+    url = config.env("WEBHOOK_URL")
+    if not url:
+        raise NotifyError("WEBHOOK_URL must be set")
+    data = json.dumps({"event": f"ardea.{kind}", "payload": {"title": title, "text": body, "link": link,
+                                                             "urgent": urgent}}, ensure_ascii=False).encode()
+    headers = {"Content-Type": "application/json", "User-Agent": "Ardea"}
+    if config.env("WEBHOOK_SECRET"):
+        headers["X-Ardea-Signature"] = "sha256=" + hmac.new(config.env("WEBHOOK_SECRET").encode(), data,
+                                                            hashlib.sha256).hexdigest()
+    _post("webhook", url, data=data, headers=headers)
+
+
+_MESSAGE_SENDERS = {"smtp": _msg_smtp, "ntfy": _msg_ntfy, "slack": _msg_slack, "teams": _msg_teams,
+                    "webhook": _msg_webhook}
+
+
 def resolve(channel: str):
     """(sender, target) for an outbox channel: 'slack' (settings from .env) or 'slack@acme' (siems.json)."""
     kind, _, siem_id = channel.partition("@")

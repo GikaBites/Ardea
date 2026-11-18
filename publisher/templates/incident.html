@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Incident · {{ product_name }}{% endblock %}
+{% set vkey = {"True Positive": "tp", "Needs Human Review": "review", "Benign Positive": "benign", "False Positive": "fp"} %}
+{% block body %}
+<main class="insights incidents">
+	<p class="mb-1"><a class="ins-muted" href="/incidents">← All incidents</a></p>
+	<div class="ins-head">
+		<div>
+			<h1 class="ins-title mb-1">{{ inc.title }} <span class="ins-muted">on {{ inc.where }}</span></h1>
+			<div class="inc-card__badges">
+				{% if inc.status == "attention" %}<span class="ar-verdict ar-verdict--tp">Needs a person</span>{% else %}<span class="ar-verdict ar-verdict--benign">Closed by {{ product_name }}</span>{% endif %}
+				<span class="ar-sev ar-sev--{{ inc.severity | lower }}">{{ inc.severity }}</span>
+				{% if multi_siem %}<span class="ar-siem">{{ inc.siem_name }}</span>{% endif %}
+			</div>
+		</div>
+	</div>
+
+	{% if error %}<div class="alert alert-danger py-2" role="alert">{{ error }}</div>{% endif %}
+	{% if done %}<div class="alert alert-success py-2">Updated {{ done }} alert{{ 's' if done != '1' }}.</div>{% endif %}
+	{% if nis2 or can_export %}
+	<div class="inc-actions">
+		{% if nis2 %}<a class="ar-button" href="/incidents/{{ inc.id }}/nis2">Draft a NIS2 report</a>{% endif %}
+		{% if can_export %}<a class="ar-button" href="/incidents/{{ inc.id }}/export.zip">Export (ZIP)</a>
+		<button type="button" class="ar-button" data-print>Print or save as PDF</button>{% endif %}
+	</div>
+	{% endif %}
+
+	<div class="ins-kpis">
+		<div class="{{ 'is-bad' if inc.needs_person else 'is-good' }}"><span>Alerts</span><b>{{ inc.count }}</b><small>{{ inc.needs_person }} need a person{% if inc.occurrences > inc.count %} · {{ inc.occurrences }} with repeats{% endif %}</small></div>
+		<div><span>Time span</span><b>{% if inc.minutes > 59 %}{{ (inc.minutes / 60) | round(1) }} h{% else %}{{ inc.minutes }} min{% endif %}</b><small>{{ inc.start | localtime }} – {{ inc.end | localtime("%d/%m %H:%M") }}</small></div>
+		<div class="{{ 'is-warn' if inc.hosts | length > 1 }}"><span>Hosts</span><b>{{ inc.hosts | length or 1 }}</b><small>{{ inc.hosts[:4] | join(", ") }}{% if inc.hosts | length > 4 %} +{{ inc.hosts | length - 4 }}{% endif %}</small></div>
+		<div class="{{ 'is-warn' if inc.users | length > 1 }}"><span>Accounts</span><b>{{ inc.users | length }}</b><small>{{ inc.users[:4] | join(", ") or "none recorded" }}{% if inc.users | length > 4 %} +{{ inc.users | length - 4 }}{% endif %}</small></div>
+	</div>
+
+	<div class="inc-grid">
+		<section class="ins-block">
+			<h2>Rules</h2>
+			<div class="ins-table"><table>
+				{% for name, n in inc.rules %}<tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>{% endfor %}
+			</table></div>
+		</section>
+		<section class="ins-block">
+			<h2>Verdicts</h2>
+			<div class="inc-verdicts">
+				{% for v in ("True Positive", "Needs Human Review", "Benign Positive", "False Positive") %}{% if inc.verdicts.get(v) %}
+				<span class="ar-verdict ar-verdict--{{ vkey[v] }}">{{ inc.verdicts[v] }} × {{ "Needs Review" if v == "Needs Human Review" else v }}</span>
+				{% endif %}{% endfor %}
+			</div>
+			{% if inc.techniques %}
+			<h2 class="mt-2">MITRE ATT&amp;CK</h2>
+			<div class="ar-tags">{% for m in inc.techniques %}<span class="ar-tag" title="{{ m.name }}">{{ m.id }} {{ m.name }}</span>{% endfor %}</div>
+			{% endif %}
+		</section>
+	</div>
+
+	{% if work_on and items %}
+	{% set open_items = items | rejectattr("handled") | list %}
+	<section class="ins-block">
+		<h2>Who is on it</h2>
+		<div class="ins-table"><table class="q-table">
+			<thead><tr><th>Deadline</th><th>Alert</th><th>Who</th><th>Status</th></tr></thead>
+			<tbody>
+			{% for i in items %}
+			<tr class="{{ 'is-overdue' if i.overdue }}"><td class="ins-nowrap"><span class="q-due {{ 'q-due--late' if i.overdue }}">{{ due_text(i) }}</span></td>
+				<td>{{ i.alert.rule_name }} <span class="ins-muted">· {{ i.alert.hostname }}</span>{% if i.note %}<div class="ins-muted small">Note: {{ i.note }}</div>{% endif %}</td>
+				<td>{{ i.assignee or "—" }}</td><td>{{ "Reviewed" if i.reviewed and i.status != "resolved" else labels[i.status] }}</td></tr>
+			{% endfor %}
+			</tbody>
+		</table></div>
+		{% if can_work and open_items %}
+		<form method="post" action="/queue/work" class="q-bulk">
+			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+			<input type="hidden" name="back" value="/incidents/{{ inc.id }}" />
+			{% for i in open_items %}<input type="hidden" name="alert_id" value="{{ i.alert.alert_id }}" />{% endfor %}
+			<span class="ins-muted small">For the {{ open_items | length }} open alert{{ 's' if open_items | length > 1 }}:</span>
+			<select class="form-select form-select-sm" name="action" aria-label="Action">
+				<option value="take">Assign to me</option><option value="assign">Assign to…</option>
+				<option value="start">Mark in progress</option><option value="resolve">Resolve, with the note</option>
+			</select>
+			<select class="form-select form-select-sm" name="assignee" aria-label="Assignee">{% for u in users %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select>
+			<input class="form-control form-control-sm" name="note" maxlength="500" placeholder="Note (needed to resolve)" />
+			<button class="btn btn-primary btn-sm">Apply</button>
+		</form>
+		{% endif %}
+		{% if log %}<details class="inc-log"><summary class="ins-muted small">History ({{ log | length }})</summary>
+			<ul class="small ins-muted mb-0">{% for l in log %}<li>{{ l.at | localtime }} · {{ l.actor }} · {{ l.action }}</li>{% endfor %}</ul></details>{% endif %}
+	</section>
+	{% endif %}
+
+	<section class="ins-block">
+		<h2>Timeline</h2>
+		<ol class="inc-timeline">
+			{% for a in inc.alerts %}
+			<li class="inc-step inc-step--{{ vkey.get(a.verdict, 'unknown') }}">
+				<div class="inc-step__time ins-mono">{{ a.timestamp_raw | localtime("%d/%m %H:%M:%S") }}</div>
+				<div class="inc-step__body">
+					<div class="inc-step__head">
+						<span class="ar-verdict ar-verdict--{{ vkey.get(a.verdict, 'unknown') }}">{{ "Needs Review" if a.verdict == "Needs Human Review" else a.verdict }}</span>
+						<span class="ar-sev ar-sev--{{ a.severity | lower }}">{{ a.severity }}</span>
+						<strong>{{ a.rule_name }}</strong>
+						<span class="ins-muted">{{ a.hostname }}{% if a.user %} · {{ a.user }}{% endif %}{% if a.occurrences and a.occurrences > 1 %} · ×{{ a.occurrences }}{% endif %}</span>
+					</div>
+					{% if a.detail.summary %}<p class="inc-step__summary">{{ a.detail.summary }}</p>{% endif %}
+					<a class="inc-step__link" href="/?q={{ a.alert_id | urlencode }}">Open the alert and its evidence →</a>
+				</div>
+			</li>
+			{% endfor %}
+		</ol>
+	</section>
+	<p class="ins-muted small">Grouped because these alerts share a host or a user account, each within an hour of the previous one, in the same SIEM. Each alert keeps its own verdict and evidence.</p>
+</main>
+<script src="{{ url_for('static', filename='js/insights.js') }}" defer></script>
+{% endblock %}

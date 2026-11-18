@@ -10,7 +10,7 @@ import config
 import siems as siem_config
 
 log = logging.getLogger("settings")
-KINDS = re.compile(r"^(llm|licence|pack:install|siem:[a-z0-9][a-z0-9_-]{0,31}|notify:[a-z]+)$")
+KINDS = re.compile(r"^(llm|licence|pack:install|digest|health|siem:[a-z0-9][a-z0-9_-]{0,31}|notify:[a-z]+)$")
 
 
 def _scrub(text: str) -> str:
@@ -105,6 +105,44 @@ def _licence(conn) -> tuple[bool, str]:
     return True, f"Edition {tier}" + (f", {row['product']}" if row.get("product") else "") + "."
 
 
+def _digest(conn) -> tuple[bool, str]:
+    import digest
+    import licensing
+    if not licensing.has("digest"):
+        return False, f"The handover digest needs Ardea Pro or MSP (this installation runs {licensing.tier().title()})."
+    results = digest.send_now(conn)
+    if not results:
+        return False, "No notification channel is set up: choose one under Notifications → Send verdicts to."
+    failed = [f"{c}: {e}" for c, e in results if e]
+    sent = [c for c, e in results if not e]
+    if failed:
+        return bool(sent), ("Sent via " + ", ".join(sent) + ". " if sent else "") + "Failed: " + "; ".join(failed)
+    return True, "Digest sent via " + ", ".join(sent) + ". Check that it arrived."
+
+
+def _health(conn) -> tuple[bool, str]:
+    import health
+    import licensing
+    if not licensing.has("source_health"):
+        return False, f"Source monitoring needs Ardea Pro or MSP (this installation runs {licensing.tier().title()})."
+    health.run_due(conn, force=True)
+    rows = conn.execute("SELECT h.siem, h.status, h.detail, h.last_event_at, h.quiet_hosts, s.name "
+                        "FROM source_health h LEFT JOIN siems s ON s.id = h.siem ORDER BY h.siem").fetchall()
+    if not rows:
+        return False, "No SIEM is configured yet."
+    parts = []
+    for r in rows:
+        name = r["name"] or r["siem"]
+        if r["status"] == "ok":
+            newest = f"newest event {r['last_event_at']:%d/%m %H:%M} UTC" if r["last_event_at"] else "checked"
+            parts.append(f"{name}: OK, {newest}.")
+        else:
+            parts.append(f"{name}: {r['detail'] or r['status']}.")
+        if r["quiet_hosts"]:
+            parts.append(f"Quiet watched hosts: {', '.join(h['host'] for h in r['quiet_hosts'][:10])}.")
+    return all(r["status"] == "ok" and not r["quiet_hosts"] for r in rows), " ".join(parts)
+
+
 def run_pending(conn, limit: int = 3):
     """Run queued tests. Called from the worker loop; never raises."""
     for _ in range(limit):
@@ -126,6 +164,10 @@ def run_pending(conn, limit: int = 3):
                 ok, detail = _llm()
             elif kind == "licence":
                 ok, detail = _licence(conn)
+            elif kind == "digest":
+                ok, detail = _digest(conn)
+            elif kind == "health":
+                ok, detail = _health(conn)
             elif kind == "pack:install":
                 import packs
                 ok, detail = packs.install_latest(conn, row.get("requested_by") or "admin")

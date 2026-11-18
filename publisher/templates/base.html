@@ -30,6 +30,8 @@
 			<div class="ar-nav__links">
 				{% if not g.user.must_change_password %}
 				<a class="ar-nav__link {% if request.path == '/' %}is-active{% endif %}" href="/">Alerts</a>
+				<a class="ar-nav__link {% if request.path.startswith('/queue') %}is-active{% endif %}" href="/queue">Queue</a>
+				<a class="ar-nav__link {% if request.path.startswith('/incidents') %}is-active{% endif %}" href="/incidents">Incidents</a>
 				<a class="ar-nav__link {% if request.path.startswith('/insights') %}is-active{% endif %}" href="/insights/report">Insights</a>
 				{% if g.user.role == "admin" %}
 				<a class="ar-nav__link {% if request.path.startswith('/admin/users') %}is-active{% endif %}" href="{{ url_for('users_page') }}">Users</a>
@@ -52,6 +54,13 @@
 		</nav>
 		{% if demo_mode %}
 		<div class="ar-demo" role="note">Demo with sample alerts: verdicts and investigations are examples, not live results. All paid features are on. <a href="https://github.com/GikaBites/ardea#installation">Install Ardea on your own SIEM</a></div>
+		{% endif %}
+		{% if source_alarms %}
+		<div class="ar-alarm" role="alert">
+			<strong>A data source went quiet.</strong>
+			{% for line in source_alarms %}<span class="ar-alarm__line">{{ line }}</span>{% endfor %}
+			{% if g.user.role == "admin" %}<a href="/admin/settings/monitoring">Monitoring settings</a>{% endif %}
+		</div>
 		{% endif %}
 		{% block body %}{% endblock %}
 		{% block scripts %}{% endblock %}

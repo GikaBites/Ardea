@@ -22,12 +22,19 @@ FEATURES = {                     # same map as worker/licensing.py
     "tuning": "pro",                 # rule-tuning advisor
     "csv_export": "pro",
     "retriage": "pro",
+    "incidents": "pro",              # related alerts grouped into incidents with one timeline
+    "source_health": "pro",          # warning when a SIEM stops sending events
+    "digest": "pro",                 # daily handover digest
+    "assignments": "pro",            # assign alerts, response deadlines, my queue
+    "nis2": "pro",                   # NIS2 report drafts from an incident
+    "incident_export": "pro",        # incident export (ZIP) and print view
     "multi_siem": "msp",
     "branding": "msp",
     "customer_reports": "msp",       # per-SIEM scheduled reports
     "customer_routing": "msp",       # per-SIEM notification targets
     "customer_context": "msp",       # per-SIEM environment facts and playbooks
     "usage_export": "msp",
+    "host_watch": "msp",             # warning when a watched host goes quiet
 }
 _cache = {"at": 0.0, "state": None}
 

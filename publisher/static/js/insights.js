@@ -10,6 +10,14 @@
 		});
 	}
 	document.querySelector("[data-print]")?.addEventListener("click", () => window.print());
+	for (const btn of document.querySelectorAll("[data-copy-target]")) {
+		btn.addEventListener("click", () => {
+			const field = document.getElementById(btn.dataset.copyTarget);
+			if (!field) return;
+			const done = () => { const old = btn.textContent; btn.textContent = "Copied"; setTimeout(() => { btn.textContent = old; }, 1200); };
+			try { navigator.clipboard.writeText(field.value).then(done, () => { field.select(); }); } catch (e) { field.select(); }
+		});
+	}
 	document.addEventListener("click", (event) => {
 		const btn = event.target.closest("[data-copy]");
 		if (!btn) return;

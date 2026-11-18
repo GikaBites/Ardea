@@ -283,7 +283,7 @@
 		<div class="card-body">
 			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
 			<div class="set-grid">
-				{% set sections = {"SMTP_HOST": "E-mail", "NTFY_URL": "ntfy", "SLACK_WEBHOOK_URL": "Slack and Teams", "WEBHOOK_URL": "Webhook", "JIRA_URL": "Jira", "THEHIVE_URL": "TheHive", "NOTIFY_PROXY": "Network", "AGENT_MAX_STEPS": "Investigation limits", "IGNORED_RULES": "Alert collection", "SEARXNG_URL": "Search providers", "INTERNAL_DOMAINS": "What must never be searched", "ARDEA_BRAND_NAME": "Branding (MSP)", "ARDEA_LICENSE_PROXY": "Network"} %}
+				{% set sections = {"SMTP_HOST": "E-mail", "NTFY_URL": "ntfy", "SLACK_WEBHOOK_URL": "Slack and Teams", "WEBHOOK_URL": "Webhook", "JIRA_URL": "Jira", "THEHIVE_URL": "TheHive", "NOTIFY_PROXY": "Network", "AGENT_MAX_STEPS": "Investigation limits", "IGNORED_RULES": "Alert collection", "SEARXNG_URL": "Search providers", "INTERNAL_DOMAINS": "What must never be searched", "ARDEA_BRAND_NAME": "Branding (MSP)", "ARDEA_LICENSE_PROXY": "Network", "SOURCE_SILENCE_MINUTES": "Silent sources", "HOST_WATCH": "Watched hosts", "DIGEST_TIME": "Handover digest"} %}
 				{% for st in fields %}{% if st.f.name in sections %}<h3 class="set-sub set-wide">{{ sections[st.f.name] }}</h3>{% endif %}{{ field(st) }}{% endfor %}
 				{% if group == "reports" %}
 				<div class="set-field">
@@ -299,6 +299,7 @@
 				<button type="submit" class="btn btn-primary">Save</button>
 				{% if group == "licence" %}{{ test_button("licence", "Check the licence now") }}{% endif %}
 				{% if group == "ai" %}{{ test_button("llm", "Test the connection") }}{% endif %}
+				{% if group == "monitoring" %}{{ test_button("health", "Check the sources now") }}{{ test_button("digest", "Send a digest now") }}{% endif %}
 			</div>
 			{% if group == "notifications" %}
 			<div class="set-tests">

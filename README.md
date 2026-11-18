@@ -49,6 +49,10 @@ triaged.
 | Web UI with users, roles, audit trail and analyst feedback | ✓ | ✓ | ✓ |
 | Web search with the outbound sanitiser | ✓ | ✓ | ✓ |
 | Collect from one Elastic cluster | ✓ | ✓ | ✓ |
+| [Incidents](#incidents): related alerts grouped into one incident with one timeline, followed across hosts | | ✓ | ✓ |
+| [Queue and response deadlines](#queue-and-response-deadlines): assign alerts, deadlines per severity, overdue warnings | | ✓ | ✓ |
+| [NIS2 report drafts and incident export](#nis2-report-drafts-and-incident-export): 24-hour, 72-hour and final report drafted from the evidence; ZIP or PDF of an incident | | ✓ | ✓ |
+| [Silent-source alarm and handover digest](#monitoring-and-handover-digest): warning when a SIEM stops sending events; a daily summary of what needs a person | | ✓ | ✓ |
 | [Reports and insights](#reports-and-insights): management report (print / PDF), weekly trends, scheduled report e-mails | | ✓ | ✓ |
 | [Rule-tuning advisor](#rule-tuning-advisor): ready-to-paste Elastic exceptions for patterns that are always harmless | | ✓ | ✓ |
 | [Integrations](#integrations): Slack, Microsoft Teams, webhook, Jira, TheHive, plus e-mail and ntfy | | ✓ | ✓ |
@@ -56,6 +60,7 @@ triaged.
 | [Single sign-on](#single-sign-on) through your identity provider | | ✓ | ✓ |
 | Re-triage button, CSV export, eval-case export | | ✓ | ✓ |
 | [Several Elastic clusters](#several-siems) with per-user SIEM access | | | ✓ |
+| [Watched hosts](#monitoring-and-handover-digest): warning when a domain controller or server stops reporting | | | ✓ |
 | [Per-customer setup](#per-customer-setup-msp): own alert routing, monthly reports, facts and playbooks per customer | | | ✓ |
 | Customer portal (read-only logins per customer), usage export for billing | | | ✓ |
 | Run Ardea for your customers, [your own branding](#own-branding) | | | ✓ |
@@ -434,6 +439,81 @@ More options:
   alerts the model could not confirm. On CPU-only setups, many real attacks end up as *Needs Human Review*.
 - `NOTIFY_DETAIL=minimal` sends only the verdict, severity, rule name and links, without hostnames, users or the
   summary. Use it when mail goes through a cloud provider.
+
+---
+
+## Incidents
+
+*Pro and MSP editions.*
+
+**Incidents** groups alerts that belong together. Two alerts join the same incident when they come from the
+same SIEM and share a host or a user account, the second within an hour of the previous one on that host or
+account. Chains are followed: a phishing alert on a laptop, a credential dump on the same laptop and a remote
+logon to a server with the same account become one incident across two hosts. Service and machine accounts
+(SYSTEM, `HOST$`, `LOCAL SERVICE`…) never link alerts, or everything would join one incident.
+
+The **Incidents** page lists incidents with two or more alerts, those that need a person first, with their
+time span, hosts, accounts and verdicts. An incident's page shows one timeline with every alert's verdict
+and summary, the rules involved and the MITRE techniques found. In the alert list, an alert that is part of
+an incident links to it. Every alert keeps its own verdict and evidence: grouping changes nothing about
+triage.
+
+---
+
+## Queue and response deadlines
+
+*Pro and MSP editions.* Deadlines are set under **Settings → Response deadlines**.
+
+Every alert that needs a person (True Positive, Needs Human Review) gets a deadline from its severity,
+counted from the alert's time: by default 1 hour for Critical, 4 hours for High, 24 hours for Medium and 3
+days for the rest. The **Queue** page lists those alerts, most urgent first, with *Mine*, *Unassigned* and
+*Everything open* views. Analysts and admins take an alert, assign it to a colleague who can see that SIEM,
+mark it in progress and resolve it with a note; tick several alerts to do it at once, or do it for a whole
+incident from its page. An alert also counts as done once an analyst gives feedback on its verdict.
+
+When an alert passes its deadline without being resolved, one message goes to the notification channels
+(switch it off on the same Settings tab). Who did what is kept with each alert, and the incident page shows
+it.
+
+---
+
+## NIS2 report drafts and incident export
+
+*Pro and MSP editions.*
+
+**NIS2 drafts.** On an incident's page, **Draft a NIS2 report** fills in the early warning (24 hours), the
+incident notification (72 hours) and the final report (one month after the notification) from what the
+investigation found: times, affected hosts and accounts, MITRE techniques, indicators of compromise quoted in
+the evidence, recommended measures and resolution notes. Everything only a person can know (service impact,
+users affected, cross-border impact) is marked `[TO COMPLETE: …]`. No language model writes the draft: it
+repeats the investigation's own findings. Copy it or download it as text. Your organisation's name, contact
+and authority go under **Settings → NIS2 reports**. It is a draft, not legal advice: your national
+authority's form decides what is sent.
+
+**Export.** **Export (ZIP)** downloads the incident as `report.md`, `timeline.csv`, `incident.json` and every
+alert's full investigation trail with analyst feedback, for a customer, an auditor or the authorities.
+**Print or save as PDF** prints the incident page without the console around it. Exports are recorded in
+the audit log.
+
+---
+
+## Monitoring and handover digest
+
+*Pro and MSP editions; watched hosts: MSP.* Set up under **Settings → Monitoring and digest**.
+
+**Silent sources.** A SIEM that stops receiving events raises no alerts, so nobody notices. Every 15 minutes
+the worker asks each SIEM, read-only, for its newest event. No events for 2 hours (adjustable; 0 turns it
+off), or a SIEM that cannot be reached twice in a row, sends one warning to the notification channels and
+shows a banner in the console until it recovers. Recovery is announced too.
+
+**Watched hosts (MSP).** List hosts that must never go quiet, such as `dc-*` or `srv-sql-01`. When one sends
+no events for an hour (adjustable), you are told: an endpoint agent that stops reporting can be a crash, a
+shutdown, or an attacker disabling it.
+
+**Handover digest.** Once a day at the hour you choose, a summary of the last 24 hours goes to the
+notification channels (e-mail, ntfy, Slack, Teams, webhook): alerts triaged and closed, the rules closed most
+often, what still waits for a person with the most severe first, incidents with several alerts, and sources
+that went quiet. **Send a digest now** shows what it looks like.
 
 ---
 

@@ -31,6 +31,9 @@ GROUPS = [
     ("triage", "Triage"),
     ("websearch", "Web search"),
     ("notifications", "Notifications"),
+    ("deadlines", "Response deadlines"),
+    ("monitoring", "Monitoring and digest"),
+    ("nis2", "NIS2 reports"),
     ("reports", "Reports and branding"),
 ]
 
@@ -159,6 +162,43 @@ FIELDS = [
           feature="integrations"),
     Field("NOTIFY_PROXY", "notifications", "Proxy for notifications", "url",
           "Only if the worker reaches Slack, Teams or Jira through a proxy."),
+    # Response deadlines (Pro)
+    Field("SLA_CRITICAL_MINUTES", "deadlines", "Critical: respond within (minutes)", "int",
+          "From the alert's time. Applies to alerts that need a person (true positives and reviews).", "60",
+          min=5, max=43200, feature="assignments", services=("worker", "publisher")),
+    Field("SLA_HIGH_MINUTES", "deadlines", "High: respond within (minutes)", "int", "", "240",
+          min=5, max=43200, feature="assignments", services=("worker", "publisher")),
+    Field("SLA_MEDIUM_MINUTES", "deadlines", "Medium: respond within (minutes)", "int", "", "1440",
+          min=5, max=43200, feature="assignments", services=("worker", "publisher")),
+    Field("SLA_LOW_MINUTES", "deadlines", "Low and other: respond within (minutes)", "int", "", "4320",
+          min=5, max=43200, feature="assignments", services=("worker", "publisher")),
+    Field("OVERDUE_NOTIFY", "deadlines", "Tell the team when an alert is overdue", "bool",
+          "One message to the notification channels when an alert passes its deadline without being resolved.",
+          "true", feature="assignments"),
+    # NIS2 report drafts (Pro): filled into the drafts, publisher only
+    Field("NIS2_ENTITY", "nis2", "Legal name of the entity", "text", "As registered with the authority.",
+          feature="nis2", services=("publisher",)),
+    Field("NIS2_SECTOR", "nis2", "Sector and entity type", "text", "e.g. Digital infrastructure, important entity.",
+          feature="nis2", services=("publisher",)),
+    Field("NIS2_CONTACT", "nis2", "Contact for incident reports", "text", "Name, phone and e-mail.",
+          feature="nis2", services=("publisher",)),
+    Field("NIS2_AUTHORITY", "nis2", "Where reports go", "text",
+          "Your national CSIRT or competent authority, e.g. CSIRT-CY / Digital Security Authority.",
+          feature="nis2", services=("publisher",)),
+    # Monitoring and digest
+    Field("SOURCE_SILENCE_MINUTES", "monitoring", "Warn when a SIEM sends no events for (minutes)", "int",
+          "Checked every 15 minutes in each SIEM's event indices. The warning goes to the notification "
+          "channels and shows in the console. 0 turns it off.", "120", min=0, max=10080, feature="source_health"),
+    Field("HOST_WATCH", "monitoring", "Hosts that must never go quiet", "lines",
+          "One host name per line; * matches anything, e.g. dc-* or srv-sql-01. Leave empty to watch no hosts.",
+          feature="host_watch"),
+    Field("HOST_SILENCE_MINUTES", "monitoring", "Warn when a watched host sends no events for (minutes)", "int",
+          "", "60", min=15, max=10080, feature="host_watch"),
+    Field("DIGEST_TIME", "monitoring", "Daily handover digest", "choice",
+          "A summary of the last 24 hours to the notification channels: what came in, what was closed and "
+          "why, and what needs a person today. Uses the server's time zone.", "off",
+          (("off", "Off"),) + tuple((f"{h:02d}:00", f"Every day at {h:02d}:00") for h in range(24)),
+          feature="digest"),
     # Reports and branding
     Field("ARDEA_REPORTS", "reports", "Scheduled report e-mail", "choice", "", "off",
           (("off", "Off"), ("weekly", "Weekly, on Monday"), ("monthly", "Monthly, on the 1st")), feature="reports"),
@@ -226,6 +266,16 @@ CREATE TABLE IF NOT EXISTS playbook_packs (    -- signed playbook packs added fr
 );
 CREATE TABLE IF NOT EXISTS playbook_pack_state (
     id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1), last_check_at TIMESTAMPTZ, last_ok BOOLEAN, last_detail TEXT
+);
+CREATE TABLE IF NOT EXISTS alert_work (           -- who handles an alert that needs a person (Pro)
+    alert_id TEXT PRIMARY KEY, assignee TEXT,
+    status TEXT NOT NULL DEFAULT 'open',        -- open | in_progress | resolved
+    note TEXT, updated_by TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), resolved_at TIMESTAMPTZ,
+    overdue_notified_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS alert_work_log (
+    id BIGSERIAL PRIMARY KEY, alert_id TEXT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actor TEXT, action TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings_tests (
     id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL, requested_by TEXT,

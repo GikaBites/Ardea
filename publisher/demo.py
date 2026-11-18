@@ -302,6 +302,28 @@ def _showcase(sd):
     sd.alert("acme", "Unusual Parent-Child Relationship", "c0ffee12", "ws-sales-04", "nikos",
              r"C:\Windows\System32\rundll32.exe", r"C:\Program Files\Browser\update_helper.exe", ts, res)
 
+    # 6. What followed example 1: the same account on the same host and then a server. Together with
+    #    example 1 these form one incident on the Incidents page (Pro).
+    follow = [
+        (15, "Unusual Network Connection via RunDLL32", "52aaab7b", "ws-acc-07", "True Positive", "High", 90,
+         "upd.exe loaded through rundll32 opened a connection to 203.0.113.45:443, the same address as the "
+         "beacon found three minutes earlier.", "Command and Control", r"C:\Windows\System32\rundll32.exe",
+         r"C:\Users\mpapas\AppData\Local\Temp\upd.exe"),
+        (9, "Potential Credential Access via LSASS Memory Access", "9960432d", "ws-acc-07", "Needs Human Review",
+         "High", 70, "A process from AppData opened lsass.exe with read access. Credential access is never "
+         "closed automatically.", "Credential Access", r"C:\Users\mpapas\AppData\Local\Temp\upd.exe",
+         r"C:\Windows\System32\rundll32.exe"),
+        (4, "Remote Logon with Explicit Credentials", "2a1b7e3c", "srv-file-01", "Needs Human Review", "High", 64,
+         "mpapas logged on to srv-file-01 over the network for the first time in 30 days, minutes after the "
+         "credential access on ws-acc-07.", "Lateral Movement", r"C:\Windows\System32\svchost.exe",
+         r"C:\Windows\System32\services.exe"),
+    ]
+    for minutes, rule, rid, host, verdict, sev, conf, summary, tactic, exe, parent in follow:
+        ts = t - timedelta(minutes=minutes)
+        res = _result("", rule, host, verdict, sev, conf, summary, tactic, 6,
+                      ["get_related_alerts", "get_process_tree", "get_auth_events"], 180_000)
+        sd.alert("hq", rule, rid, host, "mpapas", exe, parent, ts, res)
+
 
 def seed(engine):
     """Fill an empty database with demo data. Safe with several gunicorn workers."""

@@ -8,11 +8,14 @@ import io
 import json
 from datetime import datetime, timezone
 
-from flask import Blueprint, Response, abort, g, jsonify, render_template, request
+from flask import Blueprint, Response, abort, g, jsonify, redirect, render_template, request
 
 import auth
 import editions
+import incidents
 import insights
+import nis2
+import work
 from db import get_connection
 
 bp = Blueprint("pro", __name__)
@@ -71,6 +74,214 @@ def insights_page(section):
                            siem_names={s["id"]: s["name"] for s in visible},
                            generated=datetime.now(timezone.utc), empty_scope=scope == [],
                            can_csv=editions.has("csv_export"))
+
+
+# --------------------------------------------------------------------------- incidents
+@bp.get("/incidents")
+def incidents_page():
+    if not editions.has("incidents"):
+        return render_template("incidents.html", locked=True, needs=editions.FEATURES["incidents"],
+                               edition=editions.edition())
+    main = _main()
+    everything, _ = main.load_incidents()
+    mine = [i for i in everything if auth.can_see_siem(g.user, i["siem"])]
+    range_key = request.args.get("range", "7d")
+    range_key = range_key if range_key in incidents.RANGES else "7d"
+    status = "all" if request.args.get("status") == "all" else "attention"
+    siem = (request.args.get("siem") or "")[:32]
+    shown = incidents.select(mine, range_key=range_key, status=status, siem=siem)
+    visible = [s for s in main.load_siems() if auth.can_see_siem(g.user, s["id"])]
+    return render_template("incidents.html", locked=False, incidents=shown, range_key=range_key,
+                           status=status, siem=siem, siems=visible, inc_work=_incident_work(shown),
+                           open_count=sum(1 for i in incidents.select(mine, range_key=range_key, siem=siem)))
+
+
+@bp.get("/incidents/<inc_id>")
+def incident_page(inc_id):
+    if not editions.has("incidents"):
+        return render_template("incidents.html", locked=True, needs=editions.FEATURES["incidents"],
+                               edition=editions.edition())
+    everything, _ = _main().load_incidents()
+    inc = incidents.find(everything, inc_id[:40])
+    if inc is None or not auth.can_see_siem(g.user, inc["siem"]):
+        abort(404)                                     # not 403: don't confirm it exists
+    items = _incident_work([inc]).get(inc["id"], {}).get("items", [])
+    return render_template("incident.html", inc=inc, multi_siem=len(_main().load_siems()) > 1,
+                           work_on=editions.has("assignments"), items=items,
+                           can_work=g.user["role"] in auth.FEEDBACK_ROLES,
+                           users=work.assignable_users(inc["siem"]) if editions.has("assignments") else [],
+                           log=work.history([i["alert"]["alert_id"] for i in items]) if items else [],
+                           labels=work.STATUS_LABELS, due_text=work.due_text, nis2=editions.has("nis2"),
+                           can_export=editions.has("incident_export"),
+                           error=request.args.get("error", "")[:200], done=request.args.get("done", ""))
+
+
+def _incident_or_404(inc_id):
+    everything, _ = _main().load_incidents()
+    inc = incidents.find(everything, inc_id[:40])
+    if inc is None or not auth.can_see_siem(g.user, inc["siem"]):
+        abort(404)
+    return inc
+
+
+@bp.get("/incidents/<inc_id>/nis2")
+def incident_nis2(inc_id):
+    if not editions.has("nis2"):
+        return _locked_page("nis2")
+    inc = _incident_or_404(inc_id)
+    stage = request.args.get("stage", "early")
+    stage = stage if stage in nis2.STAGES else "early"
+    notes = []
+    if editions.has("assignments"):
+        rows, _ = work.load(a["alert_id"] for a in inc["alerts"])
+        notes = [r["note"] for r in rows.values() if r.get("status") == "resolved" and r.get("note")]
+    text_ = nis2.draft(inc, stage, notes)
+    if request.args.get("download") == "1":
+        name = f"nis2-{stage}-{inc['id']}.txt"
+        return Response(text_ + "\n", mimetype="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+    return render_template("nis2.html", inc=inc, stage=stage, stages=nis2.STAGES, draft=text_,
+                           deadlines=nis2.deadlines(inc), todo_count=text_.count("[TO COMPLETE"))
+
+
+@bp.get("/incidents/<inc_id>/export.zip")
+def incident_export(inc_id):
+    if not editions.has("incident_export"):
+        return _locked_page("incident_export")
+    import zipfile
+    from db import get_feedback, get_trail
+    inc = _incident_or_404(inc_id)
+    alerts = inc["alerts"][:200]
+    rows, _ = work.load(a["alert_id"] for a in alerts) if editions.has("assignments") else ({}, set())
+    t = lambda d: d.astimezone().strftime("%d/%m/%Y %H:%M:%S")          # noqa: E731
+    md = [f"# Incident {inc['id']}: {inc['title']} on {inc['where']}", "",
+          f"- SIEM: {inc['siem_name']}", f"- Status: {'needs a person' if inc['status'] == 'attention' else 'closed'}"
+          f", highest severity {inc['severity']}", f"- Time: {t(inc['start'])} to {t(inc['end'])} ({inc['minutes']} min)",
+          f"- Alerts: {inc['count']} ({inc['needs_person']} needed a person)",
+          f"- Hosts: {', '.join(inc['hosts']) or '-'}", f"- Accounts: {', '.join(inc['users']) or '-'}",
+          f"- Techniques: {', '.join((m['id'] + ' ' + m['name']).strip() for m in inc['techniques']) or '-'}",
+          f"- Exported: {t(datetime.now(timezone.utc))} by {g.user['username']}", "", "## Timeline", ""]
+    out_alerts = []
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        timeline = io.StringIO()
+        w = csv.writer(timeline)
+        w.writerow(["time", "alert_id", "verdict", "severity", "confidence", "rule", "host", "account", "assignee",
+                    "status", "summary"])
+        for a in alerts:
+            d = a.get("detail") or {}
+            wr = rows.get(a["alert_id"]) or {}
+            w.writerow([_cell(x) for x in (a["timestamp_raw"].isoformat(), a["alert_id"], a["verdict"], a["severity"],
+                                           a.get("confidence_score"), a["rule_name"], a["hostname"], a.get("user", ""),
+                                           wr.get("assignee") or "", wr.get("status") or "", d.get("summary", ""))])
+            md += [f"### {t(a['timestamp_raw'])} · {a['rule_name']} on {a['hostname']}", "",
+                   f"**{a['verdict']}**, {a['severity']}, confidence {a.get('confidence_score')}. Alert `{a['alert_id']}`.",
+                   "", d.get("summary", "") or "(no summary)", ""]
+            md += [f"- [{f_['stance']}] {f_['claim']} ({', '.join(f_['evidence']) or 'no evidence id'})"
+                   for f_ in d.get("findings", [])]
+            md += [f"- Action ({act.get('priority') or '-'}): {act['action']}" for act in d.get("actions", [])]
+            if wr.get("note"):
+                md.append(f"- Resolution note: {wr['note']}")
+            md.append("")
+            trail = get_trail(a["alert_id"])
+            z.writestr(f"trails/{_safe_name(a['alert_id'])}.json",
+                       json.dumps({"alert_id": a["alert_id"], "steps": trail, "feedback": get_feedback(a["alert_id"])},
+                                  default=str, indent=1, ensure_ascii=False))
+            out_alerts.append({k: a.get(k) for k in ("alert_id", "rule_name", "hostname", "user", "siem", "verdict",
+                                                      "severity", "confidence_score", "occurrences", "detail")}
+                              | {"time": a["timestamp_raw"].isoformat(), "work": wr or None})
+        z.writestr("report.md", "\n".join(md) + "\n")
+        z.writestr("timeline.csv", timeline.getvalue())
+        z.writestr("incident.json", json.dumps({k: inc[k] for k in ("id", "title", "where", "siem", "siem_name", "status",
+                                                                    "severity", "count", "hosts", "users", "techniques",
+                                                                    "verdicts")}
+                                               | {"start": inc["start"].isoformat(), "end": inc["end"].isoformat(),
+                                                  "rules": dict(inc["rules"]), "alerts": out_alerts},
+                                               default=str, indent=1, ensure_ascii=False))
+        z.writestr("README.txt", "Ardea incident export\n\nreport.md      readable report with every alert's verdict, "
+                   "findings and actions\ntimeline.csv   one row per alert\nincident.json  everything above, "
+                   "machine-readable\ntrails/        every investigation step per alert (queries, results, model "
+                   "output, guardrails) and analyst feedback\n\nVerdicts are automated: verify before acting.\n")
+    auth.audit(g.user["username"], "incident_export", inc["id"], _main()._client_ip(), f"{len(alerts)} alerts")
+    return Response(buf.getvalue(), mimetype="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="ardea-{inc["id"]}.zip"'})
+
+
+def _safe_name(text_):
+    import re
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", text_)[:120]
+
+
+def _incident_work(incs):
+    """inc id -> {"items", "open", "overdue", "assignees"} for alerts that need a person (Pro: assignments)."""
+    if not editions.has("assignments"):
+        return {}
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    flagged = [a for inc in incs for a in inc["alerts"] if a["verdict"] in work.NEEDS_PERSON]
+    rows, reviewed = work.load(a["alert_id"] for a in flagged)
+    out = {}
+    for inc in incs:
+        items = [work.item(a, rows, reviewed, now) for a in inc["alerts"] if a["verdict"] in work.NEEDS_PERSON]
+        out[inc["id"]] = {"items": items, "open": sum(1 for i in items if not i["handled"]),
+                          "overdue": sum(1 for i in items if i["overdue"]),
+                          "assignees": sorted({i["assignee"] for i in items if i["assignee"] and not i["handled"]})}
+    return out
+
+
+# --------------------------------------------------------------------------- my queue and deadlines
+def _locked_page(feature, template="incidents.html"):
+    return render_template(template, locked=True, needs=editions.FEATURES[feature], edition=editions.edition(),
+                           locked_feature=feature)
+
+
+@bp.get("/queue")
+def queue_page():
+    if not editions.has("assignments"):
+        return _locked_page("assignments", "queue.html")
+    main = _main()
+    mine = main.visible_alerts(main.load_alerts())
+    who = request.args.get("who", "all")
+    who = who if who in ("all", "mine", "unassigned") else "all"
+    range_key = request.args.get("range", "30d")
+    range_key = range_key if range_key in work.RANGES else "30d"
+    show_handled = request.args.get("handled") == "1"
+    items = work.queue(mine, who=who, me=g.user["username"], range_key=range_key, show_handled=show_handled)
+    _, inc_of = main.load_incidents() if editions.has("incidents") else ({}, {})
+    counts = {k: len(work.queue(mine, who=k, me=g.user["username"], range_key=range_key)) for k in ("mine", "unassigned", "all")}
+    return render_template("queue.html", locked=False, items=items, who=who, range_key=range_key,
+                           show_handled=show_handled, counts=counts, inc_of=inc_of,
+                           can_work=g.user["role"] in auth.FEEDBACK_ROLES, users=work.assignable_users(),
+                           labels=work.STATUS_LABELS, due_text=work.due_text,
+                           error=request.args.get("error", "")[:200], done=request.args.get("done", ""))
+
+
+@bp.post("/queue/work")
+def queue_work():
+    if not editions.has("assignments"):
+        abort(403)
+    if g.user["role"] not in auth.FEEDBACK_ROLES:
+        abort(403)
+    main = _main()
+    visible = {a["alert_id"]: a for a in main.visible_alerts(main.load_alerts())}
+    one = request.form.get("one")
+    ids = [one] if one in visible else [a for a in request.form.getlist("alert_id") if a in visible][:500]
+    action = request.form.get("one_action", "take") if one else request.form.get("action", "")
+    back = request.form.get("back", "/queue")
+    back = back if back.startswith(("/queue", "/incidents/")) and "//" not in back else "/queue"
+    if not ids:
+        return redirect(back, code=303)
+    try:
+        n = work.update(ids, g.user["username"], action, request.form.get("assignee") or None,
+                        request.form.get("note", ""), siem_of=lambda aid: visible[aid]["siem"])
+    except work.WorkError as exc:
+        return redirect(f"{back}{'&' if '?' in back else '?'}error={_q(str(exc))}", code=303)
+    return redirect(f"{back}{'&' if '?' in back else '?'}done={n}", code=303)
+
+
+def _q(text_):
+    from urllib.parse import quote
+    return quote(text_[:200])
 
 
 # --------------------------------------------------------------------------- CSV export

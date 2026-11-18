@@ -36,6 +36,7 @@ def test_shared_modules_are_identical():
     for name in ("appsettings.py", "siems.py"):
         assert filecmp.cmp(ROOT / "worker" / name, ROOT / "fetcher" / name, shallow=False), name
         assert filecmp.cmp(ROOT / "worker" / name, ROOT / "publisher" / name, shallow=False), name
+    assert filecmp.cmp(ROOT / "worker" / "incidents.py", ROOT / "publisher" / "incidents.py", shallow=False)
 
 
 def test_every_field_is_well_formed():

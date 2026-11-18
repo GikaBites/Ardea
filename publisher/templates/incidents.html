@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Incidents · {{ product_name }}{% endblock %}
+{% set vkey = {"True Positive": "tp", "Needs Human Review": "review", "Benign Positive": "benign", "False Positive": "fp"} %}
+{% block body %}
+<main class="insights incidents">
+	<div class="ins-head">
+		<div>
+			<h1 class="ins-title">Incidents</h1>
+			{% if not locked %}
+			<nav class="ins-tabs" aria-label="Which incidents">
+				<a href="?status=attention&range={{ range_key }}{% if siem %}&siem={{ siem }}{% endif %}" class="{{ 'is-active' if status == 'attention' }}">Need a person ({{ open_count }})</a>
+				<a href="?status=all&range={{ range_key }}{% if siem %}&siem={{ siem }}{% endif %}" class="{{ 'is-active' if status == 'all' }}">All</a>
+			</nav>
+			{% endif %}
+		</div>
+		{% if not locked %}
+		<form class="ins-controls" method="get" action="/incidents">
+			<input type="hidden" name="status" value="{{ status }}" />
+			<label class="visually-hidden" for="inc-range">Period</label>
+			<select class="form-select form-select-sm" id="inc-range" name="range" data-autosubmit>
+				{% for key, label in (("24h", "Last 24 hours"), ("7d", "Last 7 days"), ("30d", "Last 30 days"), ("90d", "Last 90 days")) %}
+				<option value="{{ key }}" {{ 'selected' if range_key == key }}>{{ label }}</option>
+				{% endfor %}
+			</select>
+			{% if siems | length > 1 %}
+			<label class="visually-hidden" for="inc-siem">SIEM</label>
+			<select class="form-select form-select-sm" id="inc-siem" name="siem" data-autosubmit>
+				<option value="">All SIEMs</option>
+				{% for s in siems %}<option value="{{ s.id }}" {{ 'selected' if siem == s.id }}>{{ s.name }}</option>{% endfor %}
+			</select>
+			{% endif %}
+		</form>
+		{% endif %}
+	</div>
+
+	{% if locked %}
+	<section class="ins-locked">
+		<p class="ins-eyebrow">{{ needs | upper }} feature</p>
+		{% if locked_feature == "nis2" %}
+		<h2>The NIS2 report, drafted from the evidence</h2>
+		<p>For an incident, {{ product_name }} drafts the 24-hour early warning, the 72-hour notification and the final report: times, affected systems and accounts, techniques, indicators of compromise and the measures recommended, with every field only a person can know clearly marked.</p>
+		<ul><li>Start the report in minutes, not hours, when the clock is running</li><li>Nothing invented: the draft repeats the investigation's own findings</li></ul>
+		{% elif locked_feature == "incident_export" %}
+		<h2>Hand the whole incident over in one file</h2>
+		<p>Export an incident as a ZIP with a report, the timeline as CSV, every verdict and every investigation step, or print it as a PDF for a customer, an auditor or the authorities.</p>
+		{% else %}
+		<h2>One incident instead of fifteen alerts</h2>
+		<p>{{ product_name }} groups alerts that belong together: the same host or the same user account within an hour, followed across hosts. You see one incident with one timeline, how far it spread, and which parts already need a person.</p>
+		<ul><li>Spot an attack moving from host to host through one account</li><li>Handle a noisy burst once, not alert by alert</li><li>Every alert keeps its own verdict and evidence; nothing about triage changes</li></ul>
+		{% endif %}
+		<p class="ins-locked__cta">This installation runs the {{ edition | capitalize }} edition. {% if g.user.role == "admin" %}Add a {{ needs | capitalize }} licence key under <a href="/admin/settings/licence">Settings → Licence</a> to switch it on.{% else %}Ask your administrator about upgrading.{% endif %}
+			<a href="https://ardeasecurity.com/#pricing" target="_blank" rel="noopener">See the editions and prices</a></p>
+	</section>
+	{% elif not incidents %}
+	<section class="ins-block">
+		<p class="mb-0 ins-muted">{% if status == "attention" %}No incident in this period has an alert that needs a person.{% else %}No incidents with two or more related alerts in this period.{% endif %} Single alerts are on the <a href="/">Alerts</a> page.</p>
+	</section>
+	{% else %}
+	<section class="inc-list">
+		{% for inc in incidents %}
+		<a class="inc-card inc-card--{{ inc.status }}" href="/incidents/{{ inc.id }}">
+			<div class="inc-card__badges">
+				{% if inc.status == "attention" %}<span class="ar-verdict ar-verdict--tp">Needs a person</span>{% else %}<span class="ar-verdict ar-verdict--benign">Closed by {{ product_name }}</span>{% endif %}
+				<span class="ar-sev ar-sev--{{ inc.severity | lower }}">{{ inc.severity }}</span>
+				{% set w = inc_work.get(inc.id) %}
+				{% if w and w.overdue %}<span class="q-due q-due--late">{{ w.overdue }} overdue</span>{% endif %}
+			</div>
+			<div class="inc-card__main">
+				<div class="inc-card__title">{{ inc.title }} <span class="ins-muted">on {{ inc.where }}</span></div>
+				<div class="inc-card__meta ins-muted">
+					{{ inc.count }} alerts · {{ inc.start | localtime }} – {{ inc.end | localtime("%H:%M") }}{% if inc.minutes > 59 %} ({{ (inc.minutes / 60) | round(1) }} h){% else %} ({{ inc.minutes }} min){% endif %}
+					{% if inc.users %} · {{ inc.users[:3] | join(", ") }}{% if inc.users | length > 3 %} +{{ inc.users | length - 3 }}{% endif %}{% endif %}
+					{% if siems | length > 1 %} · {{ inc.siem_name }}{% endif %}
+					{% if w %}{% if w.assignees %} · on it: {{ w.assignees | join(", ") }}{% elif w.open %} · <strong>nobody assigned</strong>{% endif %}{% endif %}
+				</div>
+			</div>
+			<div class="inc-card__counts">
+				{% for v in ("True Positive", "Needs Human Review", "Benign Positive", "False Positive") %}{% if inc.verdicts.get(v) %}<span class="inc-count inc-count--{{ vkey[v] }}" title="{{ v }}">{{ inc.verdicts[v] }}</span>{% endif %}{% endfor %}
+			</div>
+		</a>
+		{% endfor %}
+	</section>
+	<p class="ins-muted small mt-3">Alerts are grouped when they share a host or a user account within an hour, in the same SIEM. Single alerts stay on the Alerts page.</p>
+	{% endif %}
+</main>
+<script src="{{ url_for('static', filename='js/insights.js') }}" defer></script>
+{% endblock %}

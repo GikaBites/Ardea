@@ -191,5 +191,8 @@ CREATE TABLE IF NOT EXISTS report_runs (
 -- GRANT SELECT, INSERT ON feedback TO ardea_publisher;
 -- GRANT UPDATE (status, attempts, next_attempt_at, last_error, locked_by) ON alerts TO ardea_publisher;  -- re-triage (Pro)
 -- GRANT USAGE ON SEQUENCE feedback_id_seq TO ardea_publisher;
+-- Pro (queue and deadlines, silent sources): GRANT SELECT, INSERT, UPDATE ON alert_work TO ardea_publisher;
+-- GRANT SELECT, INSERT ON alert_work_log TO ardea_publisher; GRANT USAGE ON SEQUENCE alert_work_log_id_seq TO ardea_publisher;
+-- GRANT SELECT ON source_health TO ardea_publisher;
 
 COMMIT;

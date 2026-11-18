@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}My queue · {{ product_name }}{% endblock %}
+{% set vkey = {"True Positive": "tp", "Needs Human Review": "review", "Benign Positive": "benign", "False Positive": "fp"} %}
+{% block body %}
+<main class="insights incidents">
+	<div class="ins-head">
+		<div>
+			<h1 class="ins-title">Queue</h1>
+			{% if not locked %}
+			<nav class="ins-tabs" aria-label="Whose alerts">
+				<a href="?who=mine&range={{ range_key }}" class="{{ 'is-active' if who == 'mine' }}">Mine ({{ counts.mine }})</a>
+				<a href="?who=unassigned&range={{ range_key }}" class="{{ 'is-active' if who == 'unassigned' }}">Unassigned ({{ counts.unassigned }})</a>
+				<a href="?who=all&range={{ range_key }}" class="{{ 'is-active' if who == 'all' }}">Everything open ({{ counts.all }})</a>
+			</nav>
+			{% endif %}
+		</div>
+		{% if not locked %}
+		<form class="ins-controls" method="get" action="/queue">
+			<input type="hidden" name="who" value="{{ who }}" />
+			<label class="visually-hidden" for="q-range">Period</label>
+			<select class="form-select form-select-sm" id="q-range" name="range" data-autosubmit>
+				{% for key, label in (("7d", "Last 7 days"), ("30d", "Last 30 days"), ("90d", "Last 90 days")) %}
+				<option value="{{ key }}" {{ 'selected' if range_key == key }}>{{ label }}</option>
+				{% endfor %}
+			</select>
+			<label class="form-check ins-muted small mb-0"><input class="form-check-input" type="checkbox" name="handled" value="1" {{ 'checked' if show_handled }} data-autosubmit /> Show resolved</label>
+		</form>
+		{% endif %}
+	</div>
+
+	{% if locked %}
+	<section class="ins-locked">
+		<p class="ins-eyebrow">{{ needs | upper }} feature</p>
+		<h2>Nothing that needs a person falls through the cracks</h2>
+		<p>Every alert that needs a person gets a deadline from its severity. Assign it, mark it in progress, resolve it with a note, and see what is overdue at a glance. {{ product_name }} tells the team when something passes its deadline.</p>
+		<ul><li>"Mine", "Unassigned" and "Everything open" views, most urgent first</li><li>Deadlines you set per severity, such as one hour for Critical</li><li>Who did what is kept with each alert</li></ul>
+		<p class="ins-locked__cta">This installation runs the {{ edition | capitalize }} edition. {% if g.user.role == "admin" %}Add a {{ needs | capitalize }} licence key under <a href="/admin/settings/licence">Settings → Licence</a> to switch it on.{% else %}Ask your administrator about upgrading.{% endif %}
+			<a href="https://ardeasecurity.com/#pricing" target="_blank" rel="noopener">See the editions and prices</a></p>
+	</section>
+	{% else %}
+	{% if error %}<div class="alert alert-danger py-2" role="alert">{{ error }}</div>{% endif %}
+	{% if done %}<div class="alert alert-success py-2">Updated {{ done }} alert{{ 's' if done != '1' }}.</div>{% endif %}
+	{% if not items %}
+	<section class="ins-block"><p class="mb-0 ins-muted">{% if who == "mine" %}Nothing is assigned to you.{% elif who == "unassigned" %}Every open alert has someone on it.{% else %}No alert that needs a person is waiting in this period.{% endif %}</p></section>
+	{% else %}
+	<form method="post" action="/queue/work" class="ins-block">
+		<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+		<input type="hidden" name="back" value="{{ request.full_path }}" />
+		{% if can_work %}
+		<div class="q-bulk">
+			<span class="ins-muted small">With the ticked alerts:</span>
+			<select class="form-select form-select-sm" name="action" aria-label="Action">
+				<option value="take">Assign to me</option>
+				<option value="assign">Assign to…</option>
+				<option value="start">Mark in progress</option>
+				<option value="resolve">Resolve, with the note</option>
+				<option value="reopen">Reopen</option>
+				<option value="unassign">Unassign</option>
+			</select>
+			<select class="form-select form-select-sm" name="assignee" aria-label="Assignee">
+				{% for u in users %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
+			</select>
+			<input class="form-control form-control-sm" name="note" maxlength="500" placeholder="Note (needed to resolve)" />
+			<button class="btn btn-primary btn-sm">Apply</button>
+		</div>
+		{% endif %}
+		<div class="ins-table"><table class="q-table">
+			<thead><tr>{% if can_work %}<th><span class="visually-hidden">Select</span></th>{% endif %}<th>Deadline</th><th>Alert</th><th>Host · account</th><th>Who</th><th>Status</th><th></th></tr></thead>
+			<tbody>
+			{% for i in items %}{% set a = i.alert %}
+			<tr class="{{ 'is-overdue' if i.overdue }}">
+				{% if can_work %}<td><input class="form-check-input" type="checkbox" name="alert_id" value="{{ a.alert_id }}" aria-label="Select {{ a.rule_name }}" /></td>{% endif %}
+				<td class="ins-nowrap"><span class="q-due {{ 'q-due--late' if i.overdue }}">{{ due_text(i) }}</span><br><span class="ins-muted small">{{ a.timestamp_raw | localtime("%d/%m %H:%M") }}</span></td>
+				<td><span class="ar-verdict ar-verdict--{{ vkey.get(a.verdict, 'unknown') }}">{{ "Needs Review" if a.verdict == "Needs Human Review" else a.verdict }}</span>
+					<span class="ar-sev ar-sev--{{ a.severity | lower }}">{{ a.severity }}</span>
+					<a href="/?q={{ a.alert_id | urlencode }}"><strong>{{ a.rule_name }}</strong></a>
+					{% if inc_of.get(a.alert_id) and inc_of[a.alert_id][1] > 1 %}<a class="q-inc" href="/incidents/{{ inc_of[a.alert_id][0] }}">incident · {{ inc_of[a.alert_id][1] }} alerts</a>{% endif %}
+					{% if i.note %}<div class="ins-muted small">Note: {{ i.note }}</div>{% endif %}</td>
+				<td>{{ a.hostname }}{% if a.user %}<br><span class="ins-muted small">{{ a.user }}</span>{% endif %}</td>
+				<td>{{ i.assignee or "—" }}</td>
+				<td>{{ "Reviewed" if i.reviewed and i.status != "resolved" else labels[i.status] }}</td>
+				<td class="text-end">{% if can_work and not i.handled and i.assignee != g.user.username %}<button class="btn btn-outline-light btn-sm" name="one" value="{{ a.alert_id }}">Take</button>{% endif %}</td>
+			</tr>
+			{% endfor %}
+			</tbody>
+		</table></div>
+	</form>
+	<p class="ins-muted small">Deadlines count from the alert's time and depend on its severity (Settings → Response deadlines). An alert is done when it is resolved here or an analyst has given feedback on its verdict.</p>
+	{% endif %}
+	{% endif %}
+</main>
+<script src="{{ url_for('static', filename='js/insights.js') }}" defer></script>
+{% endblock %}

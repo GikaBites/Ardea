@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}NIS2 draft · {{ product_name }}{% endblock %}
+{% block body %}
+<main class="insights incidents">
+	<p class="mb-1"><a class="ins-muted" href="/incidents/{{ inc.id }}">← {{ inc.title }} on {{ inc.where }}</a></p>
+	<div class="ins-head">
+		<div>
+			<h1 class="ins-title">NIS2 report draft</h1>
+			<nav class="ins-tabs" aria-label="Report stage">
+				{% for key, (label, delta) in stages.items() %}<a href="?stage={{ key }}" class="{{ 'is-active' if stage == key }}">{{ label }}</a>{% endfor %}
+			</nav>
+		</div>
+		<div class="ins-controls">
+			<button type="button" class="ar-button" data-copy-target="nis2-text">Copy</button>
+			<a class="ar-button" href="?stage={{ stage }}&download=1">Download (.txt)</a>
+		</div>
+	</div>
+	<div class="ins-kpis">
+		{% for key, label, due in deadlines %}
+		<div class="{{ 'is-warn' if key == stage }}"><span>{{ label }}</span><b class="nis2-due">{{ due | localtime("%d/%m %H:%M") }}</b><small>{{ "within 24 hours of becoming aware" if key == "early" else "within 72 hours of becoming aware" if key == "notification" else "one month after the notification" }}</small></div>
+		{% endfor %}
+	</div>
+	<section class="ins-block">
+		<p class="mb-0 small ins-muted">{{ product_name }} filled in what the investigation found. {{ todo_count }} field{{ 's' if todo_count != 1 }} marked <code>[TO COMPLETE: …]</code> need{{ 's' if todo_count == 1 }} a person. Deadlines count from the first alert; adjust them if you became aware later. This is a draft, not legal advice: your national authority's form decides what is sent.{% if g.user.role == "admin" %} Your organisation's details: <a href="/admin/settings/nis2">Settings → NIS2 reports</a>.{% endif %}</p>
+		<label class="visually-hidden" for="nis2-text">Draft</label>
+		<textarea class="form-control nis2-text" id="nis2-text" rows="34" spellcheck="true">{{ draft }}</textarea>
+	</section>
+</main>
+<script src="{{ url_for('static', filename='js/insights.js') }}" defer></script>
+{% endblock %}

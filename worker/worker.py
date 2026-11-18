@@ -17,13 +17,16 @@ from ollama import Client
 import appsettings
 import config
 import db
+import digest
 import elastic
+import health
 import licensing
 import notifier
 import packs
 import playbooks
 import reports
 import settings_tests
+import sla
 import siems as siem_config
 from agent import Investigation, LLMUnavailable
 from alert_context import build_context
@@ -175,6 +178,7 @@ def run_worker():
                 db.ensure_schema(conn)
                 licensing.ensure_schema(conn)
                 reports.ensure_schema(conn)
+                health.ensure_schema(conn)
                 notifier.check_ready(conn)
                 state = licensing.refresh(conn)
                 log.info("edition %s%s", licensing.tier().upper(),
@@ -185,6 +189,9 @@ def run_worker():
                 db.cache_purge(conn)
                 licensing.refresh(conn)          # only contacts the licence server when a check is due
                 reports.run_due(conn)            # scheduled report e-mails (Pro), once per period
+                health.run_due(conn)             # silent-source alarm (Pro), every 15 minutes
+                digest.run_due(conn)             # daily handover digest (Pro), at DIGEST_TIME
+                sla.run_due(conn)                # overdue alerts (Pro: assignments)
                 last_maintenance = time.monotonic()
             HEARTBEAT.touch()
             licensing.sync(conn)

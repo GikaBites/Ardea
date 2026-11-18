@@ -1527,3 +1527,54 @@ pre {
 	.ins-kpis span, .ins-kpis small, .ins-muted, .ins-foot, .ins-table th { color: #555 !important; }
 	.ins-table td { border-color: #ddd !important; }
 }
+
+/* ---------------------------------------------------------------- Incidents (Pro) */
+.inc-list { display: grid; gap: 0.6rem; }
+.inc-card { display: grid; grid-template-columns: auto 1fr auto; gap: 0.9rem; align-items: center; background: var(--ar-panel); border: 1px solid var(--ar-line); border-left: 3px solid var(--ar-safe); border-radius: var(--ar-radius); padding: 0.8rem 1rem; color: inherit; text-decoration: none; }
+.inc-card:hover { border-color: var(--ar-line-2); color: inherit; }
+.inc-card--attention { border-left-color: var(--ar-red); }
+.inc-card__badges { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.inc-card__title { font: 600 1rem var(--ar-font-head); }
+.inc-card__meta { font-size: 0.85rem; margin-top: 0.15rem; }
+.inc-card__counts { display: flex; gap: 0.3rem; }
+.inc-count { --v: var(--ar-gray); min-width: 1.9rem; text-align: center; padding: 0.15rem 0.4rem; border-radius: 5px; font: 600 0.8rem var(--ar-font-mono); color: var(--v); background: color-mix(in srgb, var(--v) 16%, transparent); }
+.inc-count--tp { --v: var(--ar-red); } .inc-count--review { --v: var(--ar-orange); } .inc-count--benign { --v: var(--ar-safe); } .inc-count--fp { --v: #aeb9c9; }
+.inc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+.inc-verdicts { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.inc-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.inc-step { --v: var(--ar-gray); display: grid; grid-template-columns: 9.5rem 1fr; gap: 1rem; padding: 0.7rem 0 0.7rem; border-bottom: 1px solid var(--ar-line); position: relative; }
+.inc-step:last-child { border-bottom: 0; }
+.inc-step--tp { --v: var(--ar-red); } .inc-step--review { --v: var(--ar-orange); } .inc-step--benign { --v: var(--ar-safe); } .inc-step--fp { --v: #aeb9c9; }
+.inc-step__time { color: var(--ar-muted); padding-left: 0.9rem; border-left: 3px solid var(--v); }
+.inc-step__head { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.inc-step__summary { margin: 0.35rem 0 0.2rem; color: var(--ar-text-2); font-size: 0.9rem; }
+.inc-step__link { font-size: 0.82rem; }
+.ar-button--incident { border-color: rgba(143, 162, 255, 0.45); color: var(--ar-accent-2); text-decoration: none; }
+@media (max-width: 640px) {
+	.inc-card { grid-template-columns: 1fr; }
+	.inc-step { grid-template-columns: 1fr; gap: 0.3rem; }
+}
+
+/* ---------------------------------------------------------------- silent-source banner (Pro) */
+.ar-alarm { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; align-items: baseline; padding: 0.6rem 1.25rem; background: color-mix(in srgb, var(--ar-orange) 14%, var(--ar-bg, #0b111c)); border-bottom: 1px solid color-mix(in srgb, var(--ar-orange) 45%, transparent); color: #fff; font-size: 0.9rem; }
+.ar-alarm strong { color: var(--ar-orange); }
+.ar-alarm__line { color: var(--ar-text-2, #cdd5e1); }
+.ar-alarm a { color: var(--ar-accent-2); margin-left: auto; }
+
+/* ---------------------------------------------------------------- queue and deadlines (Pro) */
+.q-bulk { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.q-bulk .form-select, .q-bulk .form-control { width: auto; }
+.q-bulk .form-control { min-width: 16rem; }
+.q-table tr.is-overdue td { background: color-mix(in srgb, var(--ar-red) 7%, transparent); }
+.q-due { font: 600 0.82rem var(--ar-font-mono); color: var(--ar-text-2); white-space: nowrap; }
+.q-due--late { color: var(--ar-red); }
+.q-inc { margin-left: 0.4rem; font-size: 0.8rem; }
+.inc-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.inc-log summary { cursor: pointer; }
+@media print {
+	.ar-nav, .ar-demo, .ar-alarm, .inc-actions, .q-bulk, .inc-step__link, .inc-log { display: none !important; }
+	body { background: #fff; color: #000; }
+	.ins-block, .ins-kpis > div { background: #fff; border-color: #bbb; }
+}
+.nis2-text { font: 0.85rem/1.5 var(--ar-font-mono); background: var(--ar-bg, #0b111c); color: var(--ar-text, #e6ebf3); min-height: 30rem; }
+.nis2-due { font-size: 1.35rem !important; }
