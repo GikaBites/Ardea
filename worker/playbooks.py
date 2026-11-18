@@ -2,9 +2,10 @@
 
 Two sources, merged per rule:
   * playbooks.yaml: your own playbooks, environment context and default. Always used, every edition.
-  * the Ardea playbook pack (Pro / MSP): *.ardpack files in /app/packs, signed with the Ardea release
-    key. Playbook guidance is shown to the model as operator text, so an unsigned or modified pack is
-    never loaded. The newest valid pack is used.
+  * the Ardea playbook pack (Pro / MSP), signed with the Ardea release key: installed from the Settings
+    page (downloaded from the pack server or uploaded; packs.py keeps them in the database), or *.ardpack
+    files in /app/packs. Playbook guidance is shown to the model as operator text, so an unsigned or
+    modified pack is never loaded. The newest valid pack is used.
 A playbook in playbooks.yaml always wins over the pack's playbook for the same rule id, rule name or tactic.
 
 MSP: per-SIEM overrides. siems.json "context" adds environment facts for that SIEM's alerts, and
@@ -25,6 +26,7 @@ _PATH = pathlib.Path(__file__).with_name("playbooks.yaml")
 PACKS_DIR = pathlib.Path(os.getenv("ARDEA_PACKS_DIR", "/app/packs"))
 _cache = {"mtime": None, "data": {}}
 _pack_cache = {"key": None, "pack": None}
+_db_packs = {"ids": (), "packs": []}                # verified payloads from the playbook_packs table (packs.sync)
 SIEMS_DIR = pathlib.Path(os.getenv("ARDEA_SIEMS_DIR", "/app/siems"))
 _siem_cache: dict = {}
 _SECTIONS = ("by_rule_id", "by_rule_name", "by_tactic")
@@ -77,6 +79,11 @@ def load_pack_file(path: pathlib.Path) -> dict:
         doc = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         raise PackError("not readable JSON") from None
+    return load_pack_doc(doc)
+
+
+def load_pack_doc(doc) -> dict:
+    """The payload of a signed pack document, after the signature and structure checks. Raises PackError."""
     try:
         payload = licensing.verify_signed(doc, "pack")
     except licensing.LicenseInvalid as exc:
@@ -84,24 +91,35 @@ def load_pack_file(path: pathlib.Path) -> dict:
     return validate_pack(payload)
 
 
+def set_db_packs(ids: tuple, payloads: list[dict]):
+    """packs.sync: the verified packs installed from the Settings page."""
+    _db_packs.update(ids=tuple(ids), packs=list(payloads))
+
+
+def newer(a: str, b: str | None) -> bool:
+    """Is pack version a newer than b?"""
+    return b is None or _version_key(a) > _version_key(b)
+
+
 def current_pack() -> dict | None:
-    """The newest valid pack in PACKS_DIR, or None. Only for Pro / MSP."""
+    """The newest valid pack (Settings page or PACKS_DIR), or None. Only for Pro / MSP."""
     files = sorted(PACKS_DIR.glob("*.ardpack")) if PACKS_DIR.is_dir() else []
-    key = (licensing.has("playbook_pack"), tuple((f.name, f.stat().st_mtime) for f in files))
+    key = (licensing.has("playbook_pack"), tuple((f.name, f.stat().st_mtime) for f in files), _db_packs["ids"])
     if key == _pack_cache["key"]:
         return _pack_cache["pack"]
     best = None
-    if files and not key[0]:
-        log.warning("playbook pack found in %s, but it needs Ardea Pro or MSP (edition: %s): not loaded",
-                    PACKS_DIR, licensing.tier())
-    elif files:
+    if (files or _db_packs["packs"]) and not key[0]:
+        log.warning("a playbook pack is installed, but it needs Ardea Pro or MSP (edition: %s): not loaded",
+                    licensing.tier())
+    elif files or _db_packs["packs"]:
+        candidates = list(_db_packs["packs"])
         for f in files:
             try:
-                pack = load_pack_file(f)
+                candidates.append(load_pack_file(f))
             except PackError as exc:
                 log.error("playbook pack %s rejected: %s", f.name, exc)
-                continue
-            if best is None or _version_key(pack["version"]) > _version_key(best["version"]):
+        for pack in candidates:
+            if best is None or newer(pack["version"], best["version"]):
                 best = pack
         if best:
             log.info("playbook pack %s loaded (%s rules)", best["version"],

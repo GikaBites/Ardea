@@ -20,6 +20,7 @@ import db
 import elastic
 import licensing
 import notifier
+import packs
 import playbooks
 import reports
 import settings_tests
@@ -169,6 +170,7 @@ def run_worker():
                 _describe()
                 described = True
             settings_tests.run_pending(conn)
+            packs.tick(conn)                     # playbook pack: uploads, daily update (Pro / MSP)
             if not checked:
                 db.ensure_schema(conn)
                 licensing.ensure_schema(conn)

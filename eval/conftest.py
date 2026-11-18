@@ -32,3 +32,4 @@ def _test_config(monkeypatch):
     licensing.set_tier("msp")
     monkeypatch.setattr(playbooks, "PACKS_DIR", pathlib.Path("/nonexistent-ardea-packs"))
     playbooks._pack_cache.update(key=None, pack=None)
+    playbooks.set_db_packs((), [])

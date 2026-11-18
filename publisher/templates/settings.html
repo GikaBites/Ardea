@@ -47,13 +47,13 @@
 <div class="set-confirm">
 	<label class="set-label" for="confirm_password">Your password</label>
 	<input class="form-control" type="password" id="confirm_password" name="confirm_password" autocomplete="current-password" />
-	<p class="set-help">Needed when you change a key, password, the licence or a SIEM.</p>
+	<p class="set-help">Needed when you change a key, password, the licence, the pack server or a SIEM.</p>
 </div>
 {% endif %}
 {% endmacro %}
 
-{% macro test_button(kind, label) %}
-<span class="set-test"><button type="button" class="btn btn-outline-light btn-sm" data-test="{{ kind }}">{{ label }}</button><span class="set-test__result" aria-live="polite"></span></span>
+{% macro test_button(kind, label, reload=false, primary=false) %}
+<span class="set-test"><button type="button" class="btn {{ 'btn-primary' if primary else 'btn-outline-light' }} btn-sm" data-test="{{ kind }}" {% if reload %}data-reload="1"{% endif %}>{{ label }}</button><span class="set-test__result" aria-live="polite"></span></span>
 {% endmacro %}
 
 {% block body %}
@@ -211,6 +211,74 @@
 	</div></div>
 	{% endif %}
 
+	{% if group == "playbooks" %}
+	{% set cur = packs.current %}
+	<div class="card shadow-sm mb-3 pack-card"><div class="card-body">
+		{% if not pack_feature %}
+		<div class="alert alert-info py-2 small mb-3">The playbook pack comes with Ardea Pro and MSP: expert guidance for noisy Elastic rules, updated every month. <a href="/admin/settings/licence">Add your licence</a> first.</div>
+		{% endif %}
+		{% if cur %}
+		{% set s = cur.summary or {} %}{% set c = s.get("counts", {}) %}
+		<h2 class="h6 mb-1">Installed: {{ s.get("name") or "Ardea playbook pack" }} <span class="pack-version">{{ cur.version }}</span></h2>
+		<p class="text-secondary small mb-2">
+			{{ c.get("by_rule_id", 0) }} rules by ID · {{ c.get("by_rule_name", 0) }} by name · {{ c.get("by_tactic", 0) }} tactic playbooks
+			{% if s.get("issued") %} · released {{ s.issued[:10] }}{% endif %}
+			· {{ "downloaded" if cur.source == "download" else "uploaded" }} {{ cur.installed_at | localtime }} by {{ cur.added_by or "admin" }}
+		</p>
+		{% else %}
+		<h2 class="h6 mb-1">No playbook pack installed</h2>
+		<p class="text-secondary small mb-2">Install it with one click. The worker downloads the newest pack, checks its signature and uses it from the next alert.</p>
+		{% endif %}
+		<div class="set-actions mt-0">
+			{{ test_button("pack:install", "Install the latest pack" if not cur else "Check for a newer pack", reload=true, primary=not cur) }}
+		</div>
+		{% if packs.state and packs.state.last_check_at %}
+		<p class="set-help mt-2 mb-0">Last check {{ packs.state.last_check_at | localtime }}: {{ packs.state.last_detail }}</p>
+		{% endif %}
+	</div></div>
+
+	{% if cur and (cur.summary or {}).get("rule_names") %}
+	<details class="card shadow-sm mb-3 pack-details"><summary class="card-body py-2">What pack {{ cur.version }} covers</summary>
+		<div class="card-body pt-0">
+			<p class="set-help">Playbooks guide the investigation of these rules. Your own <code>worker/playbooks.yaml</code> wins for a rule it also covers.</p>
+			<h3 class="set-sub">Rules ({{ cur.summary.rule_names | length }}{% if cur.summary.counts.by_rule_id %}, plus {{ cur.summary.counts.by_rule_id }} matched by rule ID{% endif %})</h3>
+			<ul class="pack-list">{% for n in cur.summary.rule_names %}<li>{{ n }}</li>{% endfor %}</ul>
+			{% if cur.summary.tactics %}<h3 class="set-sub">Tactics</h3>
+			<ul class="pack-list">{% for t in cur.summary.tactics %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+		</div>
+	</details>
+	{% endif %}
+
+	<form method="post" action="/admin/settings/playbooks/upload" class="card shadow-sm mb-3 set-form" enctype="multipart/form-data">
+		<div class="card-body">
+			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+			<label class="set-label" for="f-pack">Upload a pack file</label>
+			<input class="form-control" type="file" id="f-pack" name="PACK" accept=".ardpack,application/json" />
+			<p class="set-help">For servers without internet access: download the <code>.ardpack</code> file from your customer portal on another computer, then upload it here. Its signature is checked before it is used.</p>
+			<div class="set-actions"><button type="submit" class="btn btn-outline-light btn-sm">Upload</button></div>
+		</div>
+	</form>
+
+	{% if packs.installed or packs.others %}
+	<div class="card shadow-sm mb-3"><div class="card-body">
+		<h2 class="h6">Pack history</h2>
+		<table class="table table-sm align-middle mb-0 set-table">
+			<thead><tr><th>Version</th><th>How</th><th>When</th><th>Result</th><th></th></tr></thead>
+			<tbody>
+			{% for p in packs.installed + packs.others %}
+			<tr><td><code>{{ p.version or "?" }}</code>{% if cur and p.id == cur.id %} <span class="set-badge">in use</span>{% endif %}</td>
+				<td>{{ "Download" if p.source == "download" else "Upload" }}{% if p.added_by %} · {{ p.added_by }}{% endif %}</td>
+				<td>{{ (p.installed_at or p.added_at) | localtime }}</td>
+				<td class="small">{% if p.status == "installed" %}Installed{% elif p.status == "pending" %}Waiting for the worker{% else %}{{ p.detail or "Rejected" }}{% endif %}</td>
+				<td class="text-end">{% if p.status != "pending" %}<form method="post" action="/admin/settings/playbooks/{{ p.id }}/delete" class="d-inline"><input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" /><button class="btn btn-outline-light btn-sm" aria-label="Remove pack {{ p.version }}">Remove</button></form>{% endif %}</td></tr>
+			{% endfor %}
+			</tbody>
+		</table>
+		<p class="set-help mt-2 mb-0">The newest installed version is used. Remove it to go back to the one before.</p>
+	</div></div>
+	{% endif %}
+	{% endif %}
+
 	<form method="post" action="/admin/settings/{{ group }}" class="card shadow-sm set-form" {% if group == "reports" %}enctype="multipart/form-data"{% endif %} autocomplete="off">
 		<div class="card-body">
 			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
@@ -226,7 +294,7 @@
 				</div>
 				{% endif %}
 			</div>
-			{% if group in ("licence", "notifications", "websearch", "reports") %}{{ password_box() }}{% endif %}
+			{% if group in ("licence", "notifications", "websearch", "reports", "playbooks") %}{{ password_box() }}{% endif %}
 			<div class="set-actions">
 				<button type="submit" class="btn btn-primary">Save</button>
 				{% if group == "licence" %}{{ test_button("licence", "Check the licence now") }}{% endif %}

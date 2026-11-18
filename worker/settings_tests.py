@@ -10,7 +10,7 @@ import config
 import siems as siem_config
 
 log = logging.getLogger("settings")
-KINDS = re.compile(r"^(llm|licence|siem:[a-z0-9][a-z0-9_-]{0,31}|notify:[a-z]+)$")
+KINDS = re.compile(r"^(llm|licence|pack:install|siem:[a-z0-9][a-z0-9_-]{0,31}|notify:[a-z]+)$")
 
 
 def _scrub(text: str) -> str:
@@ -112,7 +112,7 @@ def run_pending(conn, limit: int = 3):
             row = conn.execute("""UPDATE settings_tests SET status = 'running'
                                   WHERE id = (SELECT id FROM settings_tests WHERE status = 'queued'
                                               ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
-                                  RETURNING id, kind""").fetchone()
+                                  RETURNING id, kind, requested_by""").fetchone()
         except Exception:
             log.exception("cannot read settings tests")
             return
@@ -126,6 +126,9 @@ def run_pending(conn, limit: int = 3):
                 ok, detail = _llm()
             elif kind == "licence":
                 ok, detail = _licence(conn)
+            elif kind == "pack:install":
+                import packs
+                ok, detail = packs.install_latest(conn, row.get("requested_by") or "admin")
             elif kind.startswith("siem:"):
                 ok, detail = _siem(kind[5:])
             else:

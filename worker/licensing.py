@@ -177,15 +177,31 @@ def _parse_time(value) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def read_offline_license(path: pathlib.Path = None) -> dict | None:
-    """The offline licence's payload, None if there is no file. Raises LicenseInvalid if it is bad."""
+def _offline_text(path: pathlib.Path = None) -> tuple[str, str] | None:
+    """(text, where) of the offline licence: the file, else the Settings page. None if there is none."""
     path = path or OFFLINE_FILE
     if path.is_file():
-        text, where = path.read_text(), path.name
-    elif path == OFFLINE_FILE and appsettings.env("ARDEA_LICENSE_OFFLINE"):
-        text, where = appsettings.env("ARDEA_LICENSE_OFFLINE"), "the offline licence on the Settings page"
-    else:
+        return path.read_text(), path.name
+    if path == OFFLINE_FILE and appsettings.env("ARDEA_LICENSE_OFFLINE"):
+        return appsettings.env("ARDEA_LICENSE_OFFLINE"), "the offline licence on the Settings page"
+    return None
+
+
+def offline_license_doc() -> dict | None:
+    """The signed offline licence as stored (signature not checked here), for the pack server."""
+    found = _offline_text()
+    try:
+        return json.loads(found[0]) if found else None
+    except (OSError, json.JSONDecodeError):
         return None
+
+
+def read_offline_license(path: pathlib.Path = None) -> dict | None:
+    """The offline licence's payload, None if there is no file. Raises LicenseInvalid if it is bad."""
+    found = _offline_text(path)
+    if found is None:
+        return None
+    text, where = found
     try:
         doc = json.loads(text)
     except (OSError, json.JSONDecodeError):

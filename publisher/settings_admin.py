@@ -252,7 +252,9 @@ def save_group(group: str, form, files=None) -> list[str]:
             logo = _logo_from(files, form, errors)
         if errors:
             raise SettingsError(" ".join(errors))
-        sensitive = bool(secrets) or group == "licence" or logo is not None
+        server_changed = ("ARDEA_PACK_SERVER" in new_plain and new_plain["ARDEA_PACK_SERVER"]
+                          != (snap["rows"].get("ARDEA_PACK_SERVER") or {}).get("value", ""))
+        sensitive = bool(secrets) or group == "licence" or logo is not None or server_changed
         if sensitive:
             _check_password(form)
 
@@ -490,7 +492,61 @@ def publisher_value(name: str, default: str = "") -> str:
 
 
 # --------------------------------------------------------------------------- pages
-TEST_KINDS = re.compile(r"^(llm|licence|siem:[a-z0-9][a-z0-9_-]{0,31}|notify:(smtp|ntfy|slack|teams|webhook|jira|thehive))$")
+TEST_KINDS = re.compile(r"^(llm|licence|pack:install|siem:[a-z0-9][a-z0-9_-]{0,31}|notify:(smtp|ntfy|slack|teams|webhook|jira|thehive))$")
+MAX_PACK = 2 * 1024 * 1024
+
+
+# --------------------------------------------------------------------------- playbook pack
+def _version_key(version):
+    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]", str(version or "")))
+
+
+def _packs_state(conn) -> dict:
+    """The Playbook pack tab: installed packs (newest first), uploads waiting for the worker, the last check."""
+    rows = conn.execute("""SELECT id, version, source, status, detail, summary, added_by, added_at, installed_at
+                           FROM playbook_packs ORDER BY id DESC LIMIT 30""").fetchall()
+    installed = sorted((r for r in rows if r["status"] == "installed"),
+                       key=lambda r: (_version_key(r["version"]), r["id"]), reverse=True)
+    state = conn.execute("SELECT last_check_at, last_ok, last_detail FROM playbook_pack_state WHERE id = 1").fetchone()
+    return {"current": installed[0] if installed else None, "installed": installed,
+            "others": [r for r in rows if r["status"] != "installed"][:5], "state": state}
+
+
+def upload_pack(files) -> str:
+    """Store an uploaded .ardpack as 'pending'; the worker checks the signature and installs it."""
+    f = files.get("PACK") if files else None
+    if f is None or not f.filename:
+        raise SettingsError("Choose a .ardpack file first.")
+    data = f.read(MAX_PACK + 1)
+    if len(data) > MAX_PACK:
+        raise SettingsError("That file is larger than 2 MB, so it is not an Ardea playbook pack.")
+    try:
+        doc = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise SettingsError("That file is not an Ardea playbook pack (.ardpack).") from None
+    payload = doc.get("payload") if isinstance(doc, dict) else None
+    if not isinstance(payload, dict) or not isinstance(doc.get("signature"), str):
+        raise SettingsError("That file is not a signed Ardea playbook pack.")
+    version = payload.get("version")
+    if not isinstance(version, str) or not re.fullmatch(r"[0-9A-Za-z.\-]{1,40}", version):
+        raise SettingsError("That pack has no valid version.")
+    with _conn() as conn:
+        waiting = conn.execute("SELECT count(*) AS n FROM playbook_packs WHERE status = 'pending'").fetchone()
+        if waiting["n"] >= 3:
+            raise SettingsError("Three uploads are already waiting for the worker. Is the worker running?")
+        conn.execute("""INSERT INTO playbook_packs (version, content, source, status, added_by)
+                        VALUES (%s, %s, 'upload', 'pending', %s)""",
+                     (version, json.dumps(doc, ensure_ascii=False), g.user["username"]))
+        _audit(conn, g.user["username"], _main()._client_ip(), "PLAYBOOK_PACK", f"uploaded {version}")
+    return version
+
+
+def remove_pack(pack_id: int) -> str | None:
+    with _conn() as conn:
+        row = conn.execute("DELETE FROM playbook_packs WHERE id = %s RETURNING version", (pack_id,)).fetchone()
+        if row:
+            _audit(conn, g.user["username"], _main()._client_ip(), "PLAYBOOK_PACK", f"removed {row['version'] or '?'}")
+    return row["version"] if row else None
 
 
 def _edit_values(siems_state, edit, form) -> dict:
@@ -519,13 +575,14 @@ def _render(group, status=200, error=None, notes=None, edit=None, form=None):
         snap = _snapshot(conn)
         audit = conn.execute("""SELECT at, actor, name, action FROM settings_audit
                                 ORDER BY id DESC LIMIT 40""").fetchall() if group == "audit" else []
+        packs = _packs_state(conn) if group == "playbooks" else None
     fields = [_field_state(f, snap) for f in A.FIELDS if f.group == group]
     siems = _siems_state(snap) if group == "siems" else None
     ev = _edit_values(siems, edit, form) if edit else None
     logo = snap["rows"].get(A.BRAND_LOGO_KEY)
     return render_template(
         "settings.html", group=group, groups=A.GROUPS + [("audit", "Change log")], fields=fields,
-        siems=siems, edit=edit, ev=ev,
+        siems=siems, edit=edit, ev=ev, packs=packs, pack_feature=editions.has("playbook_pack"),
         has_key=bool(snap["meta"]), error=error, notes=notes or [], audit=audit,
         workers=snap["status"], logo=bool(logo), needs_password=not g.user.get("sso"),
         msp=editions.has("multi_siem"), edition=editions.edition(), license=_main()._license_view()), status
@@ -534,7 +591,7 @@ def _render(group, status=200, error=None, notes=None, edit=None, form=None):
 @bp.app_errorhandler(413)
 def too_large(_exc):
     """A friendly answer instead of the bare 413 page, on the Settings page."""
-    group = request.path.rsplit("/", 1)[-1]
+    group = "playbooks" if request.path == "/admin/settings/playbooks/upload" else request.path.rsplit("/", 1)[-1]
     if request.path.startswith("/admin/settings/") and group in GROUP_NAMES:
         return redirect(url_for("settings.settings_page", group=group, too_large=1), code=303)
     return "Request too large.", 413
@@ -552,8 +609,8 @@ def settings_page(group):
     if group not in GROUP_NAMES and group != "audit":
         abort(404)
     edit = request.args.get("edit")
-    error = ("That was too large, so nothing was saved. A logo can be up to 200 KB; other settings forms are "
-             "limited to 16 KB.") if request.args.get("too_large") else None
+    error = ("That was too large, so nothing was saved. A logo can be up to 200 KB, a playbook pack 2 MB; other "
+             "settings forms are limited to 16 KB.") if request.args.get("too_large") else None
     return _render(group, edit=edit, error=error, notes=[n for n in [request.args.get("note", "")[:300]] if n])
 
 
@@ -595,6 +652,25 @@ def siem_move(siem_id):
     _admin()
     move_siem(siem_id, request.form.get("dir") == "up")
     return redirect(url_for("settings.settings_page", group="siems"))
+
+
+@bp.post("/admin/settings/playbooks/upload")
+def pack_upload():
+    _admin()
+    try:
+        version = upload_pack(request.files)
+    except SettingsError as exc:
+        return _render("playbooks", 400, error=str(exc))
+    return _render("playbooks", notes=[f"Pack {version} uploaded. The worker checks its signature and installs it "
+                                       "within a minute: reload this page to see the result."])
+
+
+@bp.post("/admin/settings/playbooks/<int:pack_id>/delete")
+def pack_delete(pack_id):
+    _admin()
+    version = remove_pack(pack_id)
+    note = f"Pack {version} removed." if version else "That pack was already removed."
+    return redirect(url_for("settings.settings_page", group="playbooks", note=note), code=303)
 
 
 @bp.post("/admin/settings/test")

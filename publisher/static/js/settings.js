@@ -26,6 +26,7 @@
 				if (res.status === "ok" || res.status === "failed") {
 					out.className = `set-test__result is-${res.status}`;
 					out.textContent = res.detail || (res.status === "ok" ? "OK" : "Failed");
+					if (button.dataset.reload) setTimeout(() => window.location.reload(), 2500);   // show the new state
 					return;
 				}
 				if (i === 10) out.textContent = "Still waiting: the worker is probably investigating an alert…";

@@ -60,9 +60,9 @@ triaged.
 | Customer portal (read-only logins per customer), usage export for billing | | | ✓ |
 | Run Ardea for your customers, [your own branding](#own-branding) | | | ✓ |
 
-**Pro and MSP open for purchase soon** at [ardeasecurity.com](https://ardeasecurity.com/#pricing). Until then, the
-Community edition is free and complete for one cluster; for early access to the paid features, write to
-support@ardeasecurity.com.
+**Pro and MSP are on sale** at [ardeasecurity.com](https://ardeasecurity.com/#pricing). The Community edition
+stays free and complete for one cluster. The [licence](LICENSE) does not allow changing, disabling or
+bypassing the licence check.
 
 **Safety is the same in every edition.** A missing, expired or unreachable licence never stops triage and
 never weakens a guardrail: Ardea falls back to Community, keeps every per-user restriction, and alerts
@@ -495,8 +495,18 @@ add the hosts you use (for example `hooks.slack.com`) to `egress-proxy/squid.con
 The playbook pack adds ready-made playbooks (pre-collected evidence plus guidance on what is benign and what
 is not) for 30 common, noisy Elastic prebuilt rules, such as *Suspicious MS Office Child Process*,
 *Startup or Run Key Registry Modification*, *Svchost spawning Cmd* and *Whoami Process Activity*, plus
-guidance per MITRE tactic. Download the newest `ardea-playbooks-<version>.ardpack` from your order and
-put it in `packs/`. The worker loads it within a minute; the worker log shows `playbook pack ... loaded`.
+guidance per MITRE tactic.
+
+**Installing it.** As an admin, open **Settings → Playbook pack** and click **Install the latest pack**. The
+worker asks the Ardea pack server (`packs.ardeasecurity.com`) for the newest pack, sending only your licence
+key (or offline licence) and the installed version, checks the pack's signature and uses it from the next
+alert. With **Install new packs automatically** on (the default), it checks once a day and installs each
+monthly update itself. The same tab shows which rules and tactics the installed pack covers, and its history:
+remove the newest version to go back to the one before.
+
+**Without internet access**, download the `.ardpack` file from your customer portal on another computer and
+upload it on the same tab, or put it in `packs/`. With the egress lockdown, allow `packs.ardeasecurity.com`
+in `egress-proxy/squid.conf` and set the proxy on the Licence tab.
 
 The pack is signed: a modified pack is refused, because playbook text is shown to the model as trusted
 guidance. Your own `worker/playbooks.yaml` always wins over the pack for the same rule or tactic, so you can
@@ -707,7 +717,8 @@ For development with live code changes:
 | Many *Needs Human Review* verdicts for one rule | Add a playbook and `context:` facts for that rule, and give feedback in the UI. |
 | Users page shows *Licence check: licence server not reachable* | The worker cannot reach `api.polar.sh`. Paid features stay on for 30 days. Set `ARDEA_LICENSE_PROXY` (egress lockdown) or allow the host. |
 | *licence key not accepted: ... activation limit* | The key is active on another installation. Deactivate the old one in the customer portal (link in your purchase e-mail), then click **Check the licence now**. |
-| Worker log: `playbook pack ... rejected: signature is not valid` | The pack file was changed or damaged. Download it again from your order. |
+| Worker log: `playbook pack ... rejected: signature is not valid` | The pack file was changed or damaged. Download it again from your customer portal, or click **Install the latest pack**. |
+| *Install the latest pack*: "The pack server is not reachable" | The worker cannot reach `packs.ardeasecurity.com`. Set the proxy on the Licence tab (egress lockdown), or upload the pack file instead. |
 | SSO: *has no active Ardea account* | Create an Ardea user with exactly the username your identity provider sends, or enable the disabled account. |
 
 ---

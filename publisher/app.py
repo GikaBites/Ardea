@@ -39,19 +39,21 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
 log = logging.getLogger("ardea.publisher")
 
 app = Flask(__name__)
-# Requests are small (forms, feedback): 16 KB. The one exception is the logo upload on the Settings page.
+# Requests are small (forms, feedback): 16 KB. The exceptions are the two uploads on the Settings page.
 MAX_REQUEST_BYTES = 16 * 1024
 MAX_UPLOAD_BYTES = 320 * 1024                     # a 200 KB logo, base64-free multipart, plus the form
-UPLOAD_PATHS = {"/admin/settings/reports"}
-app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+MAX_PACK_UPLOAD_BYTES = 2 * 1024 * 1024 + 16 * 1024   # a signed playbook pack (up to 2 MB) plus the form
+UPLOAD_PATHS = {"/admin/settings/reports": MAX_UPLOAD_BYTES,
+                "/admin/settings/playbooks/upload": MAX_PACK_UPLOAD_BYTES}
+app.config["MAX_CONTENT_LENGTH"] = max(UPLOAD_PATHS.values())
 
 
 @app.before_request
 def limit_request_size():
-    """16 KB for everything but the logo upload, which may be up to MAX_UPLOAD_BYTES."""
+    """16 KB for everything but the two uploads, which have their own limits (UPLOAD_PATHS)."""
     if request.method in ("GET", "HEAD"):
         return None
-    limit = MAX_UPLOAD_BYTES if request.path in UPLOAD_PATHS else MAX_REQUEST_BYTES
+    limit = UPLOAD_PATHS.get(request.path, MAX_REQUEST_BYTES)
     request.max_content_length = limit            # also caps chunked uploads without a Content-Length
     if request.content_length is not None and request.content_length > limit:
         abort(413)

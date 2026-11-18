@@ -215,3 +215,84 @@ def test_a_65_kb_logo_fits_but_other_forms_stay_small(key):
     assert r.status_code == 303 and "too_large=1" in r.headers["Location"]
     page = c.get(r.headers["Location"], base_url=BASE).get_data(as_text=True)
     assert "nothing was saved" in page and "LLM_MODEL" not in rows()
+
+
+# --------------------------------------------------------------------------- playbook pack tab
+PACK_DOC = {"payload": {"version": "2026.12", "name": "Ardea playbook pack", "by_rule_name": {}}, "signature": "c2ln"}
+
+
+def _packs():
+    with get_connection() as conn:
+        return conn.execute("SELECT id, version, source, status, added_by FROM playbook_packs ORDER BY id").fetchall()
+
+
+def test_playbook_pack_tab_and_install_button(key):
+    c = login("set.admin")
+    html = c.get("/admin/settings/playbooks", base_url=BASE).get_data(as_text=True)
+    assert "No playbook pack installed" in html and 'data-test="pack:install"' in html
+    r = post(c, "/admin/settings/test", {"kind": "pack:install"})
+    assert r.status_code == 200 and r.get_json()["id"]
+    analyst = login("set.analyst")
+    assert analyst.get("/admin/settings/playbooks", base_url=BASE).status_code == 403
+    assert post(analyst, "/admin/settings/playbooks/upload").status_code == 403
+
+
+def test_pack_upload_is_stored_for_the_worker(key):
+    import io
+    with get_connection() as conn:
+        conn.execute("DELETE FROM playbook_packs")
+        conn.commit()
+    c = login("set.admin")
+    r = post(c, "/admin/settings/playbooks/upload", {"PACK": (io.BytesIO(b"not json"), "x.ardpack")},
+             content_type="multipart/form-data")
+    assert r.status_code == 400 and "not an Ardea playbook pack" in r.get_data(as_text=True)
+    r = post(c, "/admin/settings/playbooks/upload", {"PACK": (io.BytesIO(b'{"payload": {}}'), "x.ardpack")},
+             content_type="multipart/form-data")
+    assert r.status_code == 400 and "not a signed" in r.get_data(as_text=True)
+    big = json.dumps(dict(PACK_DOC, pad="x" * (1024 * 1024))).encode()      # 1 MB: allowed on this path only
+    r = post(c, "/admin/settings/playbooks/upload", {"PACK": (io.BytesIO(big), "ardea-playbooks-2026.12.ardpack")},
+             content_type="multipart/form-data")
+    assert r.status_code == 200 and "Pack 2026.12 uploaded" in r.get_data(as_text=True)
+    [p] = _packs()
+    assert (p["version"], p["source"], p["status"], p["added_by"]) == ("2026.12", "upload", "pending", "set.admin")
+    assert ("PLAYBOOK_PACK", "uploaded 2026.12") in audit()
+    huge = b"x" * (3 * 1024 * 1024)
+    r = post(c, "/admin/settings/playbooks/upload", {"PACK": (io.BytesIO(huge), "x.ardpack")},
+             content_type="multipart/form-data")
+    assert r.status_code == 303 and "too_large=1" in r.headers["Location"]
+
+
+def test_installed_pack_details_and_remove(key):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM playbook_packs")
+        conn.execute("""INSERT INTO playbook_packs (version, content, source, status, summary, added_by, installed_at)
+                        VALUES ('2026.11', '{}', 'download', 'installed', %s, 'automatic update', NOW()),
+                               ('2026.12', '{}', 'upload', 'installed', %s, 'set.admin', NOW())""",
+                     (json.dumps({"version": "2026.11", "counts": {"by_rule_id": 1, "by_rule_name": 1, "by_tactic": 0},
+                                  "rule_names": ["Old Rule"], "tactics": []}),
+                      json.dumps({"version": "2026.12", "name": "Ardea playbook pack", "issued": "2026-12-01T09:00:00Z",
+                                  "counts": {"by_rule_id": 5, "by_rule_name": 2, "by_tactic": 1},
+                                  "rule_names": ["Whoami Process Activity", "<b>Rule</b>"], "tactics": ["Execution"]})))
+        conn.commit()
+    c = login("set.admin")
+    html = c.get("/admin/settings/playbooks", base_url=BASE).get_data(as_text=True)
+    assert "Installed: Ardea playbook pack" in html and "2026.12" in html and "released 2026-12-01" in html
+    assert "What pack 2026.12 covers" in html and "Whoami Process Activity" in html and "plus 5 matched by rule ID" in html
+    assert "<b>Rule</b>" not in html and "&lt;b&gt;Rule&lt;/b&gt;" in html            # names are escaped
+    newest = [p for p in _packs() if p["version"] == "2026.12"][0]
+    r = post(c, f"/admin/settings/playbooks/{newest['id']}/delete")
+    assert r.status_code == 303 and [p["version"] for p in _packs()] == ["2026.11"]
+    assert ("PLAYBOOK_PACK", "removed 2026.12") in audit()
+    html = c.get("/admin/settings/playbooks", base_url=BASE).get_data(as_text=True)
+    assert "Installed: Ardea playbook pack" in html and "2026.11" in html
+
+
+def test_changing_the_pack_server_needs_the_password(key):
+    c = login("set.admin")
+    r = post(c, "/admin/settings/playbooks", {"ARDEA_PACK_AUTO_UPDATE": "false"})
+    assert r.status_code == 200 and rows()["ARDEA_PACK_AUTO_UPDATE"]["value"] == "false"
+    r = post(c, "/admin/settings/playbooks", {"ARDEA_PACK_SERVER": "https://evil.example"})
+    assert r.status_code == 400 and "password is not correct" in r.get_data(as_text=True)
+    r = post(c, "/admin/settings/playbooks", {"ARDEA_PACK_SERVER": "https://packs.example.net",
+                                              "confirm_password": PASSWORD})
+    assert r.status_code == 200 and rows()["ARDEA_PACK_SERVER"]["value"] == "https://packs.example.net"

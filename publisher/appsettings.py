@@ -25,6 +25,7 @@ from dataclasses import dataclass
 # --------------------------------------------------------------------------- the settings
 GROUPS = [
     ("licence", "Licence"),
+    ("playbooks", "Playbook pack"),
     ("siems", "SIEMs"),
     ("ai", "AI model"),
     ("triage", "Triage"),
@@ -67,6 +68,13 @@ FIELDS = [
           "For servers without internet access: paste the contents of the ardea.license file we sent you."),
     Field("ARDEA_LICENSE_PROXY", "licence", "Proxy for the licence check", "url",
           "Only if the worker reaches the internet through a proxy, e.g. http://egress-proxy:3128."),
+    # Playbook pack (Pro / MSP)
+    Field("ARDEA_PACK_AUTO_UPDATE", "playbooks", "Install new packs automatically", "bool",
+          "Once a day the worker asks the Ardea pack server for a newer pack and installs it. Only the licence "
+          "key is sent.", "true", feature="playbook_pack"),
+    Field("ARDEA_PACK_SERVER", "playbooks", "Pack server", "url",
+          "Leave empty unless support tells you otherwise.", "https://packs.ardeasecurity.com",
+          feature="playbook_pack"),
     # AI model
     Field("LLM_URL", "ai", "Ollama URL", "url", "Where Ollama listens, e.g. http://192.168.1.50:11434.",
           "http://ollama:11434"),
@@ -208,6 +216,16 @@ CREATE TABLE IF NOT EXISTS settings_status (    -- per service: settings version
 CREATE TABLE IF NOT EXISTS settings_audit (
     id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT NOW(), actor TEXT, ip TEXT,
     name TEXT NOT NULL, action TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS playbook_packs (    -- signed playbook packs added from the Settings page
+    id BIGSERIAL PRIMARY KEY, version TEXT, content TEXT NOT NULL,
+    source TEXT NOT NULL,                       -- download | upload
+    status TEXT NOT NULL DEFAULT 'pending',     -- pending (upload, not checked yet) | installed | rejected
+    detail TEXT, summary JSONB, added_by TEXT,
+    added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), installed_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS playbook_pack_state (
+    id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1), last_check_at TIMESTAMPTZ, last_ok BOOLEAN, last_detail TEXT
 );
 CREATE TABLE IF NOT EXISTS settings_tests (
     id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL, requested_by TEXT,

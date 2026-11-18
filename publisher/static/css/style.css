@@ -1487,6 +1487,10 @@ pre {
 .set-env { font-size: 0.85rem; color: var(--ar-text-2); margin: 0; padding: 0.45rem 0.65rem; border: 1px dashed var(--ar-line-2); border-radius: 8px; overflow-wrap: anywhere; }
 .set-problem { font-size: 0.82rem; color: var(--ar-orange-2); margin: 0.35rem 0 0; }
 .set-badge { display: inline-block; font: 600 0.68rem var(--ar-font-mono, monospace); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ar-accent-2); background: var(--ar-accent-soft); border-radius: 5px; padding: 0.1rem 0.4rem; vertical-align: middle; }
+.pack-version { font-family: var(--ar-font-mono, monospace); color: var(--ar-accent-2); margin-left: 0.25rem; }
+.pack-details > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; list-style-position: inside; }
+.pack-list { columns: 2 18rem; column-gap: 2rem; padding-left: 1.1rem; margin-bottom: 0.75rem; font-size: 0.85rem; }
+.pack-list li { break-inside: avoid; margin-bottom: 0.15rem; }
 .set-clear { margin-top: 0.35rem; font-size: 0.85rem; color: var(--ar-text-2); }
 .set-lines { font-family: var(--ar-font-mono, monospace); font-size: 0.85rem; }
 .set-multi { display: flex; flex-wrap: wrap; gap: 0.2rem 0.4rem; }
