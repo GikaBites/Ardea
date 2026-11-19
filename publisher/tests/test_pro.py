@@ -275,7 +275,7 @@ def test_monitoring_settings_tab(monkeypatch):
     c = sso_client(admin, monkeypatch)
     html = get(c, "/admin/settings/monitoring", admin).get_data(as_text=True)
     assert 'data-test="health"' in html and 'data-test="digest"' in html
-    assert "Every day at 08:00" in html and "Hosts that must never go quiet" in html
+    assert "Every day at 08:00" in html and "Important computers that must never go quiet" in html
     r = post(c, "/admin/settings/test", admin)
     assert r.status_code == 400                                    # no kind given
 
@@ -441,7 +441,8 @@ def test_queue_can_be_switched_off(monkeypatch):
     monkeypatch.setattr(settings_admin, "publisher_value",
                         lambda n, d="": "false" if n == "QUEUE_ENABLED" else real(n, d))
     html = get(c, "/incidents?siem=tpro&status=all&range=30d", admin).get_data(as_text=True)
-    assert 'href="/queue"' not in html and 'action="/incidents/work"' not in html and "overdue" not in html
+    assert 'href="/queue"' not in html and 'value="take"' not in html and "overdue" not in html
+    assert 'action="/incidents/work"' in html                     # closing incidents works without the queue
     assert "The queue is switched off" in get(c, "/queue", admin).get_data(as_text=True)
     assert form_post(c, "/queue/work", admin, {"one": "tpro:p18"}).status_code == 403
     inc = _tpro_incident(c, admin)
@@ -584,3 +585,34 @@ def test_status_bar(monkeypatch):
         conn.execute(text("DELETE FROM investigation_steps WHERE alert_id = 'tpro:q3'"))
         conn.execute(text("DELETE FROM alerts WHERE alert_id IN ('tpro:q1', 'tother:q2', 'tpro:q3')"))
         conn.execute(text("DELETE FROM service_activity"))
+
+
+def test_close_and_reopen_an_incident(monkeypatch):
+    set_license("pro")
+    analyst = user("pro.analyst", "analyst")
+    c = sso_client(analyst, monkeypatch)
+    inc = _tpro_incident(c, analyst)
+    with auth.engine.begin() as conn:
+        conn.execute(text("DELETE FROM alert_work"))
+        conn.execute(text("DELETE FROM feedback WHERE comment IS NULL"))
+    assert inc in get(c, "/incidents?siem=tpro&range=30d", analyst).get_data(as_text=True)
+    r = form_post(c, f"/incidents/{inc}/close", analyst, {"outcome": "resolved", "note": ""})
+    assert "error=" in r.headers["Location"]
+    r = form_post(c, f"/incidents/{inc}/close", analyst, {"outcome": "false_positive", "note": "IT admin testing"})
+    assert r.headers["Location"].endswith("closed=1")
+    assert inc not in get(c, "/incidents?siem=tpro&range=30d", analyst).get_data(as_text=True)
+    page = get(c, "/incidents?siem=tpro&range=30d&status=resolved", analyst).get_data(as_text=True)
+    assert inc in page and "Closed by pro.analyst" in page and "False positive: IT admin testing" in page
+    with auth.engine.begin() as conn:                                     # queue on: its alerts were resolved too
+        assert conn.execute(text("SELECT count(*) FROM alert_work WHERE status = 'resolved'")).scalar() == 3
+    detail = get(c, f"/incidents/{inc}", analyst).get_data(as_text=True)
+    assert "closed the incident (False positive): IT admin testing" in detail and "Reopen" in detail
+    viewer = user("pro.viewer", "viewer")
+    assert form_post(sso_client(viewer, monkeypatch), f"/incidents/{inc}/reopen", viewer, {}).status_code == 403
+    assert form_post(c, f"/incidents/{inc}/reopen", analyst, {}).headers["Location"].endswith("closed=reopened")
+    assert inc in get(c, "/incidents?siem=tpro&range=30d", analyst).get_data(as_text=True)
+    r = form_post(c, "/incidents/work", analyst, {"inc_id": inc, "action": "close", "outcome": "benign",
+                                                  "note": "Scheduled maintenance", "back": "/incidents?siem=tpro"})
+    assert "closed=1" in r.headers["Location"]
+    assert inc not in get(c, "/incidents?siem=tpro&range=30d", analyst).get_data(as_text=True)
+    form_post(c, f"/incidents/{inc}/reopen", analyst, {})

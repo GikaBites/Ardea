@@ -101,7 +101,7 @@ def test_env_values_are_read_only(key, monkeypatch):
         conn.commit()
     c = login("set.admin")
     html = c.get("/admin/settings/ai", base_url=BASE).get_data(as_text=True)
-    assert "from-env" in html and "Set in <code>.env</code>" in html
+    assert "from-env" in html and "Set in the <code>.env</code> file" in html
     post(c, "/admin/settings/ai", {"LLM_MODEL": "should-not-save", "LLM_URL": "http://10.0.0.5:11434"})
     assert "LLM_MODEL" not in rows()
     with get_connection() as conn:
@@ -130,7 +130,7 @@ def test_secrets_need_the_password_and_are_never_shown(key):
 def test_changing_the_host_clears_a_bound_secret(key):
     c = login("set.admin")
     r = post(c, "/admin/settings/notifications", {"SMTP_HOST": "evil.example.net", "SMTP_TO": "soc@example.com"})
-    assert r.status_code == 200 and "SMTP password was cleared" in r.get_data(as_text=True)
+    assert r.status_code == 200 and "Mail password was cleared" in r.get_data(as_text=True)
     assert "SMTP_PASSWORD" not in rows()
 
 
@@ -388,3 +388,27 @@ def test_settings_templates_need_msp_and_apply_to_many_siems(key, monkeypatch):
     assert json.loads(rows()[A.SIEM_TEMPLATES_KEY]["value"]) == []
     for sid in ("acme", "beta"):
         post(c, f"/admin/settings/siems/{sid}/delete", {"confirm_password": PASSWORD})
+
+
+def test_start_here_and_password_check_and_values_kept(key):
+    c = login("set.admin")
+    assert c.get("/admin/settings", base_url=BASE).headers["Location"].endswith("/admin/settings/overview")
+    html = c.get("/admin/settings/overview", base_url=BASE).get_data(as_text=True)
+    assert "Start here" in html and "SIEMs (Elastic)" in html and "Alerts to your team" in html
+    r = c.post("/admin/settings/confirm-password", base_url=BASE, json={"password": "wrong"},
+               headers={"Origin": BASE, "X-CSRF-Token": c.csrf})
+    assert r.status_code == 403 and r.get_json() == {"ok": False}
+    r = c.post("/admin/settings/confirm-password", base_url=BASE, json={"password": PASSWORD},
+               headers={"Origin": BASE, "X-CSRF-Token": c.csrf})
+    assert r.status_code == 200 and r.get_json() == {"ok": True}
+    # a failed save keeps what was typed (here: a wrong password for a new mail password)
+    r = post(c, "/admin/settings/notifications", {"SMTP_HOST": "mail.example.org", "SMTP_TO": "team@example.org",
+                                                  "SMTP_PASSWORD": "new-secret-123", "NOTIFY_CHANNELS": "smtp",
+                                                  "confirm_password": "wrong"})
+    html = r.get_data(as_text=True)
+    assert r.status_code == 400 and "Nothing was saved" in html
+    assert 'value="mail.example.org"' in html and 'value="team@example.org"' in html and "new-secret-123" not in html
+    assert rows().get("SMTP_HOST", {}).get("value") != "mail.example.org"
+    analyst = login("set.analyst")
+    assert analyst.post("/admin/settings/confirm-password", base_url=BASE, json={"password": PASSWORD},
+                        headers={"Origin": BASE, "X-CSRF-Token": analyst.csrf}).status_code == 403

@@ -281,17 +281,22 @@ characters). Then open **Settings** (step 6) and create accounts for the other a
 
 ### 6. Configure Ardea on the Settings page
 
-Signed in as an admin, open **Settings**. Changes apply within about 30 seconds, without a restart.
+Signed in as an admin, open **Settings**. It opens on **Start here**: a checklist of what is set up, what is
+missing and what needs attention, with a button to each part. The menu on the left has the four parts every
+installation needs, in order, then the optional ones. Each page says what it is for and whether you need it;
+settings most people never change are under **Advanced settings**, closed by default, and fields only appear when
+they apply (the SearXNG address only when you pick SearXNG, the mail server only when you switch on e-mail).
+Changes apply within about 30 seconds, without a restart.
 
 | Section | What you set there |
 |---|---|
-| Licence | Your Pro or MSP licence key, or an offline licence file |
-| SIEMs | Each Elastic cluster: URL, the two API keys of step 2, Kibana URL, a private CA certificate. MSP: per-customer facts, alert routing and report recipients |
-| AI model | Ollama URL, model, context window, reasoning, timeouts. **Test the connection** lists the installed models |
-| Triage | Confidence needed to close, the second look before closing, investigation limits, rules to ignore |
-| Web search | Provider and keys, allowed query kinds, internal domains and words that must never be searched |
-| Notifications | E-mail, ntfy, Slack, Teams, webhook, Jira, TheHive, with a test button for each (Pro) |
-| Reports and branding | Scheduled report e-mails (Pro), minutes per alert for the time-saved estimate, your brand name and logo (MSP) |
+| 1 Licence | Your Pro or MSP licence key, or an offline licence file. Skip it for the free edition |
+| 2 SIEMs (Elastic) | Each Elastic cluster in three steps: name, address, the two read-only API keys of step 2. MSP: per-customer facts, alert copies, reports and settings templates |
+| 3 AI model | Where Ollama runs and the model name. **Test the connection** lists the installed models |
+| 4 Alerts to your team | What to tell the team, and how: switch on e-mail, phone push (ntfy), Slack, Teams, webhook, Jira or TheHive, each with its own test button (Pro) |
+| How alerts are handled | When Ardea may close an alert by itself, the double check, rules to ignore |
+| Web search | Provider and key, internal domains and words that must never be searched |
+| Playbook pack, Queue and deadlines, Monitoring and daily digest, Reports and branding, NIS2 details | The Pro and MSP extras |
 | Change log | Who changed which setting and when. Values are never recorded |
 
 How the Settings page keeps secrets safe:
@@ -306,8 +311,10 @@ How the Settings page keeps secrets safe:
   without being typed in again.
 - **Tests run in the worker.** The test buttons queue a check that the worker carries out with the saved values;
   results never contain the secret or a full URL. They can take a minute while the worker investigates an alert.
-- **Your password again.** Saving a key, password, the licence or a SIEM asks for the admin's password (not with
-  single sign-on). Wrong answers count towards the normal lockout.
+- **Your password again.** Saving a key, password, the licence or a SIEM opens a pop-up that asks for your own
+  sign-in password (not with single sign-on). It is checked before anything is sent, so a typo never loses what you
+  filled in. Wrong answers count towards the normal lockout. If a save fails for any reason, the form keeps what
+  you typed (except keys and passwords, which are never sent back to the browser).
 
 What stays in `.env`: database credentials, the HTTPS address and certificate, single sign-on, the egress proxy,
 web UI session limits and demo mode. A value set in `.env` always wins and appears read-only on the Settings page;
@@ -493,6 +500,15 @@ time span, hosts, accounts and verdicts. An incident's page shows one timeline w
 and summary, the rules involved and the MITRE techniques found. In the alert list, an alert that is part of
 an incident links to it. Every alert keeps its own verdict and evidence: grouping changes nothing about
 triage.
+
+**Closing an incident.** Analysts and admins can close an incident on its page (**Close this incident**), or
+several at once from the list (tick them, *Close, with the outcome and note*). Choose the outcome (resolved,
+false positive, expected activity, duplicate, risk accepted) and add a note. A closed incident moves from
+*Need a person* to *Closed by a person*, and its page shows who closed it, when and why. With the queue on,
+its alerts that need a person are resolved in the queue with the same note. An incident whose alerts were all
+resolved in the queue or reviewed by an analyst counts as handled too. If a new alert that needs a person
+joins a closed incident, it goes back to *Need a person*, marked *New alerts since it was closed*. **Reopen**
+undoes a closure. Every close and reopen is kept in the incident's history.
 
 ---
 

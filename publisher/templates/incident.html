@@ -8,7 +8,9 @@
 		<div>
 			<h1 class="ins-title mb-1">{{ inc.title }} <span class="ins-muted">on {{ inc.where }}</span></h1>
 			<div class="inc-card__badges">
-				{% if inc.status == "attention" %}<span class="ar-verdict ar-verdict--tp">Needs a person</span>{% else %}<span class="ar-verdict ar-verdict--benign">Closed by {{ product_name }}</span>{% endif %}
+				{% if inc.status == "attention" %}<span class="ar-verdict ar-verdict--tp">Needs a person</span>{% if inc.reopened %}<span class="q-due q-due--late">New alerts since it was closed</span>{% endif %}
+				{% elif inc.status == "resolved" %}<span class="ar-verdict ar-verdict--fp">{% if inc.closure %}Closed by {{ inc.closure.closed_by }}{% else %}Handled in the queue{% endif %}</span>
+				{% else %}<span class="ar-verdict ar-verdict--benign">Closed by {{ product_name }}</span>{% endif %}
 				<span class="ar-sev ar-sev--{{ inc.severity | lower }}">{{ inc.severity }}</span>
 				{% if multi_siem %}<span class="ar-siem">{{ inc.siem_name }}</span>{% endif %}
 			</div>
@@ -17,6 +19,24 @@
 
 	{% if error %}<div class="alert alert-danger py-2" role="alert">{{ error }}</div>{% endif %}
 	{% if done %}<div class="alert alert-success py-2">Updated {{ done }} alert{{ 's' if done != '1' }}.</div>{% endif %}
+	{% if closed == "1" %}<div class="alert alert-success py-2">Incident closed.</div>{% elif closed == "reopened" %}<div class="alert alert-success py-2">Incident reopened.</div>{% endif %}
+	{% if inc.closure %}
+	<section class="ins-block inc-closure">
+		<p class="mb-0"><strong>{{ "Was closed" if inc.status == "attention" else "Closed" }}: {{ inc.closure.outcome_label }}</strong> by {{ inc.closure.closed_by }}, {{ inc.closure.closed_at | localtime }}. {{ inc.closure.note }}
+		{% if inc.reopened %}<br><span class="ins-muted">A new alert that needs a person joined it after it was closed.</span>{% endif %}</p>
+		{% if can_work %}<form method="post" action="/incidents/{{ inc.id }}/reopen" class="mt-2"><input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" /><button class="btn btn-outline-light btn-sm">Reopen</button></form>{% endif %}
+	</section>
+	{% endif %}
+	{% if can_work and inc.status == "attention" %}
+	<form method="post" action="/incidents/{{ inc.id }}/close" class="ins-block q-bulk">
+		<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+		<strong class="small">Close this incident</strong>
+		<select class="form-select form-select-sm" name="outcome" aria-label="Outcome">{% for k, v in outcomes.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+		<input class="form-control form-control-sm" name="note" maxlength="500" required minlength="3" placeholder="How it was closed, e.g. contained and password reset" />
+		<button class="btn btn-primary btn-sm">Close incident</button>
+		{% if work_on %}<span class="ins-muted small w-100">Its alerts that need a person are resolved in the queue with the same note.</span>{% endif %}
+	</form>
+	{% endif %}
 	{% if nis2 or can_export %}
 	<div class="inc-actions">
 		{% if nis2 %}<a class="ar-button" href="/incidents/{{ inc.id }}/nis2">Draft a NIS2 report</a>{% endif %}

@@ -9,6 +9,7 @@
 			{% if not locked %}
 			<nav class="ins-tabs" aria-label="Which incidents">
 				<a href="?status=attention&range={{ range_key }}{% if siem %}&siem={{ siem }}{% endif %}" class="{{ 'is-active' if status == 'attention' }}">Need a person ({{ open_count }})</a>
+<a href="?status=resolved&range={{ range_key }}{% if siem %}&siem={{ siem }}{% endif %}" class="{{ 'is-active' if status == 'resolved' }}">Closed by a person ({{ resolved_count }})</a>
 				<a href="?status=all&range={{ range_key }}{% if siem %}&siem={{ siem }}{% endif %}" class="{{ 'is-active' if status == 'all' }}">All</a>
 			</nav>
 			{% endif %}
@@ -53,10 +54,11 @@
 	</section>
 	{% else %}
 	{% if error %}<div class="alert alert-danger py-2" role="alert">{{ error }}</div>{% endif %}
-	{% if done %}<div class="alert alert-success py-2">Updated {{ done }} alert{{ 's' if done != '1' }}.</div>{% endif %}
+{% if done %}<div class="alert alert-success py-2">Updated {{ done }} alert{{ 's' if done != '1' }}.</div>{% endif %}
+	{% if closed %}<div class="alert alert-success py-2">Closed {{ closed }} incident{{ 's' if closed != '1' }}. Find {{ 'them' if closed != '1' else 'it' }} under "Closed by a person".</div>{% endif %}
 	{% if not incidents %}
 	<section class="ins-block">
-		<p class="mb-0 ins-muted">{% if status == "attention" %}No incident in this period has an alert that needs a person.{% else %}No incidents with two or more related alerts in this period.{% endif %} Single alerts are on the <a href="/">Alerts</a> page.</p>
+<p class="mb-0 ins-muted">{% if status == "attention" %}No incident in this period has an alert that needs a person.{% elif status == "resolved" %}No incident in this period was closed by a person.{% else %}No incidents with two or more related alerts in this period.{% endif %} Single alerts are on the <a href="/">Alerts</a> page.</p>
 	</section>
 	{% else %}
 	{% if bulk %}<form method="post" action="/incidents/work" id="inc-bulk">
@@ -64,14 +66,20 @@
 		<input type="hidden" name="back" value="{{ request.full_path }}" />
 		<div class="q-bulk mb-2">
 			<label class="form-check mb-0"><input class="form-check-input" type="checkbox" data-select-all="inc_id" /> <span class="ins-muted small">All</span></label>
-			<span class="ins-muted small">For the alerts that need a person in the ticked incidents:</span>
+			<span class="ins-muted small">With the ticked incidents:</span>
 			<select class="form-select form-select-sm" name="action" aria-label="Action">
+				<option value="close">Close, with the outcome and note</option>
+				{% if queue_actions %}
+				<optgroup label="Their alerts that need a person">
 				<option value="take">Assign to me</option><option value="assign">Assign to…</option>
 				<option value="start">Mark in progress</option><option value="resolve">Resolve, with the note</option>
 				<option value="reopen">Reopen</option><option value="unassign">Unassign</option>
+				</optgroup>
+				{% endif %}
 			</select>
-			<select class="form-select form-select-sm" name="assignee" aria-label="Assignee">{% for u in users %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select>
-			<input class="form-control form-control-sm" name="note" maxlength="500" placeholder="Note (needed to resolve)" />
+			<select class="form-select form-select-sm" name="outcome" aria-label="Outcome (when closing)">{% for k, v in outcomes.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+			{% if queue_actions %}<select class="form-select form-select-sm" name="assignee" aria-label="Assignee">{% for u in users %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select>{% endif %}
+			<input class="form-control form-control-sm" name="note" maxlength="500" placeholder="Note (needed to close or resolve)" />
 			<button class="btn btn-primary btn-sm">Apply</button>
 		</div>
 	</form>{% endif %}
@@ -81,7 +89,9 @@
 		{% if bulk %}<input class="form-check-input inc-row__check" type="checkbox" name="inc_id" value="{{ inc.id }}" form="inc-bulk" aria-label="Select {{ inc.title }}" />{% endif %}
 		<a class="inc-card inc-card--{{ inc.status }}" href="/incidents/{{ inc.id }}">
 			<div class="inc-card__badges">
-				{% if inc.status == "attention" %}<span class="ar-verdict ar-verdict--tp">Needs a person</span>{% else %}<span class="ar-verdict ar-verdict--benign">Closed by {{ product_name }}</span>{% endif %}
+				{% if inc.status == "attention" %}<span class="ar-verdict ar-verdict--tp">Needs a person</span>{% if inc.reopened %}<span class="q-due q-due--late" title="Closed before; a new alert that needs a person joined it">New alerts since it was closed</span>{% endif %}
+				{% elif inc.status == "resolved" %}<span class="ar-verdict ar-verdict--fp">{% if inc.closure %}Closed by {{ inc.closure.closed_by }}{% else %}Handled in the queue{% endif %}</span>
+				{% else %}<span class="ar-verdict ar-verdict--benign">Closed by {{ product_name }}</span>{% endif %}
 				<span class="ar-sev ar-sev--{{ inc.severity | lower }}">{{ inc.severity }}</span>
 				{% set w = inc_work.get(inc.id) %}
 				{% if w and w.overdue %}<span class="q-due q-due--late">{{ w.overdue }} overdue</span>{% endif %}
@@ -92,7 +102,8 @@
 					{{ inc.count }} alerts · {{ inc.start | localtime }} – {{ inc.end | localtime("%H:%M") }}{% if inc.minutes > 59 %} ({{ (inc.minutes / 60) | round(1) }} h){% else %} ({{ inc.minutes }} min){% endif %}
 					{% if inc.users %} · {{ inc.users[:3] | join(", ") }}{% if inc.users | length > 3 %} +{{ inc.users | length - 3 }}{% endif %}{% endif %}
 					{% if siems | length > 1 %} · {{ inc.siem_name }}{% endif %}
-					{% if w %}{% if w.assignees %} · on it: {{ w.assignees | join(", ") }}{% elif w.open %} · <strong>nobody assigned</strong>{% endif %}{% endif %}
+					{% if inc.status == "resolved" and inc.closure %} · {{ inc.closure.outcome_label }}: {{ inc.closure.note }}
+					{% elif w and inc.status == "attention" %}{% if w.assignees %} · on it: {{ w.assignees | join(", ") }}{% elif w.open %} · <strong>nobody assigned</strong>{% endif %}{% endif %}
 				</div>
 			</div>
 			<div class="inc-card__counts">

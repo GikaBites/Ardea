@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, Response, abort, g, jsonify, redirect, render_template, request
 
 import auth
+import closures
 import editions
 import incidents
 import insights
@@ -115,16 +116,20 @@ def incidents_page():
     mine = [i for i in everything if auth.can_see_siem(g.user, i["siem"])]
     range_key = request.args.get("range", "7d")
     range_key = range_key if range_key in incidents.RANGES else "7d"
-    status = "all" if request.args.get("status") == "all" else "attention"
+    status = request.args.get("status")
+    status = status if status in ("all", "resolved") else "attention"
     siem = (request.args.get("siem") or "")[:32]
-    shown = incidents.select(mine, range_key=range_key, status=status, siem=siem)
+    period = closures.annotate(incidents.select(mine, range_key=range_key, status="all", siem=siem))
+    shown = [i for i in period if status == "all" or i["status"] == status]
     visible = [s for s in main.load_siems() if auth.can_see_siem(g.user, s["id"])]
     return render_template("incidents.html", locked=False, incidents=shown, range_key=range_key,
                            status=status, siem=siem, siems=visible, inc_work=_incident_work(shown),
-                           bulk=work.enabled() and g.user["role"] in auth.FEEDBACK_ROLES,
-                           users=work.assignable_users() if work.enabled() else [],
+                           bulk=g.user["role"] in auth.FEEDBACK_ROLES, queue_actions=work.enabled(),
+                           users=work.assignable_users() if work.enabled() else [], outcomes=closures.OUTCOMES,
                            error=request.args.get("error", "")[:200], done=request.args.get("done", ""),
-                           open_count=sum(1 for i in incidents.select(mine, range_key=range_key, siem=siem)))
+                           closed=request.args.get("closed", ""),
+                           open_count=sum(1 for i in period if i["status"] == "attention"),
+                           resolved_count=sum(1 for i in period if i["status"] == "resolved"))
 
 
 @bp.get("/incidents/<inc_id>")
@@ -136,6 +141,7 @@ def incident_page(inc_id):
     inc = incidents.find(everything, inc_id[:40])
     if inc is None or not auth.can_see_siem(g.user, inc["siem"]):
         abort(404)                                     # not 403: don't confirm it exists
+    inc = closures.annotate([inc])[0]
     items = _incident_work([inc]).get(inc["id"], {}).get("items", [])
     return render_template("incident.html", inc=inc, multi_siem=len(_main().load_siems()) > 1,
                            work_on=work.enabled(), items=items,
@@ -143,8 +149,40 @@ def incident_page(inc_id):
                            users=work.assignable_users(inc["siem"]) if work.enabled() else [],
                            log=work.history([i["alert"]["alert_id"] for i in items]) if items else [],
                            labels=work.STATUS_LABELS, due_text=work.due_text, nis2=editions.has("nis2"),
-                           can_export=editions.has("incident_export"),
+                           can_export=editions.has("incident_export"), outcomes=closures.OUTCOMES,
+                           closed=request.args.get("closed", ""),
                            error=request.args.get("error", "")[:200], done=request.args.get("done", ""))
+
+
+@bp.post("/incidents/<inc_id>/close")
+def incident_close(inc_id):
+    if not editions.has("incidents") or g.user["role"] not in auth.FEEDBACK_ROLES:
+        abort(403)
+    inc = _incident_or_404(inc_id)
+    back = f"/incidents/{inc['id']}"
+    try:
+        closures.close([inc], g.user["username"], request.form.get("outcome", ""), request.form.get("note", ""))
+    except closures.CloseError as exc:
+        return redirect(f"{back}?error={_q(str(exc))}", code=303)
+    return redirect(f"{back}?closed=1", code=303)
+
+
+@bp.post("/incidents/<inc_id>/reopen")
+def incident_reopen(inc_id):
+    if not editions.has("incidents") or g.user["role"] not in auth.FEEDBACK_ROLES:
+        abort(403)
+    inc = _incident_or_404(inc_id)
+    closures.reopen(inc, g.user["username"])
+    return redirect(f"/incidents/{inc['id']}?closed=reopened", code=303)
+
+
+def _status_text(inc) -> str:
+    if inc["status"] == "attention":
+        return "needs a person"
+    c = inc.get("closure")
+    if inc["status"] == "resolved":
+        return (f"closed by {c['closed_by']} ({c['outcome_label']}): {c['note']}" if c else "handled in the queue")
+    return "closed automatically"
 
 
 def _incident_or_404(inc_id):
@@ -181,12 +219,12 @@ def incident_export(inc_id):
         return _locked_page("incident_export")
     import zipfile
     from db import get_feedback, get_trail
-    inc = _incident_or_404(inc_id)
+    inc = closures.annotate([_incident_or_404(inc_id)])[0]
     alerts = inc["alerts"][:200]
     rows, _ = work.load(a["alert_id"] for a in alerts) if work.enabled() else ({}, set())
     t = lambda d: d.astimezone().strftime("%d/%m/%Y %H:%M:%S")          # noqa: E731
     md = [f"# Incident {inc['id']}: {inc['title']} on {inc['where']}", "",
-          f"- SIEM: {inc['siem_name']}", f"- Status: {'needs a person' if inc['status'] == 'attention' else 'closed'}"
+          f"- SIEM: {inc['siem_name']}", f"- Status: {_status_text(inc)}"
           f", highest severity {inc['severity']}", f"- Time: {t(inc['start'])} to {t(inc['end'])} ({inc['minutes']} min)",
           f"- Alerts: {inc['count']} ({inc['needs_person']} needed a person)",
           f"- Hosts: {', '.join(inc['hosts']) or '-'}", f"- Accounts: {', '.join(inc['users']) or '-'}",
@@ -361,14 +399,27 @@ def queue_work():
 
 @bp.post("/incidents/work")
 def incidents_work():
-    """Bulk actions on the Incidents page: apply to every alert that needs a person in the ticked incidents."""
-    if not work.enabled() or g.user["role"] not in auth.FEEDBACK_ROLES:
+    """Bulk actions on the Incidents page: close the ticked incidents, or apply a queue action to every alert
+    that needs a person in them."""
+    if not editions.has("incidents") or g.user["role"] not in auth.FEEDBACK_ROLES:
         abort(403)
     everything, _ = _main().load_incidents()
     by_id = {i["id"]: i for i in everything if auth.can_see_siem(g.user, i["siem"])}
     chosen = [by_id[i] for i in request.form.getlist("inc_id")[:200] if i in by_id]
     back = request.form.get("back", "/incidents")
     back = back if back.startswith("/incidents") and "//" not in back else "/incidents"
+    if request.form.get("action") == "close":
+        sep = "&" if "?" in back else "?"
+        if not chosen:
+            return redirect(f"{back}{sep}error={_q('Tick at least one incident.')}", code=303)
+        try:
+            n = closures.close(chosen, g.user["username"], request.form.get("outcome", ""),
+                               request.form.get("note", ""))
+        except closures.CloseError as exc:
+            return redirect(f"{back}{sep}error={_q(str(exc))}", code=303)
+        return redirect(f"{back}{sep}closed={n}", code=303)
+    if not work.enabled():
+        abort(403)
     ids = [a["alert_id"] for inc in chosen for a in inc["alerts"] if a["verdict"] in work.NEEDS_PERSON]
     sep = "&" if "?" in back else "?"
     if not ids:

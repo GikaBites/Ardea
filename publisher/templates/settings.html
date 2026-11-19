@@ -3,26 +3,22 @@
 {% set editions_names = {"community": "Community", "pro": "Pro", "msp": "MSP"} %}
 
 {% macro badge(st) -%}
-{%- if st.needs %}<span class="set-badge" title="Takes effect with Ardea {{ editions_names[st.needs] }}">{{ editions_names[st.needs] }}</span>{% endif -%}
-{%- endmacro %}
-
-{% macro env_note(st) -%}
-<p class="set-env">Set in <code>.env</code> on the server{% if st.env_value %}: <code>{{ st.env_value }}</code>{% endif %}. Remove it there to manage it here.</p>
+{%- if st.needs %}<span class="set-badge" title="Works with Ardea {{ editions_names[st.needs] }}">{{ editions_names[st.needs] }} only</span>{% endif -%}
 {%- endmacro %}
 
 {% macro field(st) %}
 {% set f = st.f %}
-<div class="set-field{% if st.env %} is-env{% endif %}">
+<div class="set-field{% if st.env %} is-env{% endif %}{% if f.kind in ('lines', 'multi') %} set-wide{% endif %}" {% if f.show_if %}data-show-if="{{ f.show_if }}"{% endif %}>
 	<label class="set-label" for="f-{{ f.name }}">{{ f.label }} {{ badge(st) }}</label>
 	{% if st.env %}
-		{{ env_note(st) }}
+		<p class="set-env">Set in the <code>.env</code> file on the server{% if st.env_value %}: <code>{{ st.env_value }}</code>{% endif %}. To change it here, remove it from that file first.</p>
 	{% elif f.kind == "secret" %}
-		<input class="form-control" type="password" id="f-{{ f.name }}" name="{{ f.name }}" autocomplete="new-password"
-			placeholder="{% if st.set %}Saved{% if st.hint %} (ends in {{ st.hint }}){% endif %}. Type to replace it.{% else %}Not set{% endif %}" {% if not has_key %}disabled{% endif %} />
-		{% if st.set %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="{{ f.name }}__clear" value="1" /> Remove the saved value</label>{% endif %}
+		<input class="form-control" type="password" id="f-{{ f.name }}" name="{{ f.name }}" autocomplete="new-password" data-sensitive
+			placeholder="{% if st.set %}Saved{% if st.hint %} (ends in {{ st.hint }}){% endif %}. Type only to replace it.{% else %}{{ f.example or 'Not set' }}{% endif %}" {% if not has_key %}disabled{% endif %} />
+		{% if st.set %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="{{ f.name }}__clear" value="1" data-sensitive /> Delete the saved value</label>{% endif %}
 	{% elif f.kind == "bool" %}
-		<label class="form-check"><input class="form-check-input" type="checkbox" id="f-{{ f.name }}" name="{{ f.name }}" value="true"
-			{% if (st.value or f.default) == "true" %}checked{% endif %} /> On</label>
+		<label class="form-check form-switch set-switch"><input class="form-check-input" type="checkbox" role="switch" id="f-{{ f.name }}" name="{{ f.name }}" value="true"
+			{% if (st.value or f.default) == "true" %}checked{% endif %} /> <span data-on="On" data-off="Off"></span></label>
 	{% elif f.kind == "choice" %}
 		<select class="form-select" id="f-{{ f.name }}" name="{{ f.name }}">
 			{% for value, label in f.options %}<option value="{{ value }}" {% if (st.value or f.default) == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
@@ -32,23 +28,26 @@
 			{% for value, label in f.options %}<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="{{ f.name }}" value="{{ value }}" {% if value in st.selected %}checked{% endif %} /> {{ label }}</label>{% endfor %}
 		</div>
 	{% elif f.kind == "lines" %}
-		<textarea class="form-control set-lines" id="f-{{ f.name }}" name="{{ f.name }}" rows="{{ 8 if f.name == 'ARDEA_LICENSE_OFFLINE' else 4 }}" spellcheck="false">{{ st.value }}</textarea>
+		<textarea class="form-control set-lines" id="f-{{ f.name }}" name="{{ f.name }}" rows="{{ 8 if f.name == 'ARDEA_LICENSE_OFFLINE' else 4 }}" spellcheck="false" {% if f.example %}placeholder="{{ f.example }}"{% endif %} {% if f.name == 'ARDEA_LICENSE_OFFLINE' %}data-sensitive{% endif %}>{{ st.value }}</textarea>
 	{% else %}
 		<input class="form-control" type="{{ 'number' if f.kind == 'int' else 'text' }}" id="f-{{ f.name }}" name="{{ f.name }}" value="{{ st.value }}"
-			{% if f.default %}placeholder="Default: {{ f.default }}"{% endif %} {% if f.min is not none %}min="{{ f.min }}"{% endif %} {% if f.max is not none %}max="{{ f.max }}"{% endif %} spellcheck="false" />
+			placeholder="{{ f.example or ('Default: ' ~ f.default if f.default else '') }}" {% if f.min is not none %}min="{{ f.min }}"{% endif %} {% if f.max is not none %}max="{{ f.max }}"{% endif %} spellcheck="false" {% if f.name == 'ARDEA_PACK_SERVER' %}data-sensitive{% endif %} />
 	{% endif %}
 	{% if f.help %}<p class="set-help">{{ f.help }}</p>{% endif %}
-	{% if st.problem %}<p class="set-problem">The worker cannot use this value: {{ st.problem }}.</p>{% endif %}
+	{% if st.problem %}<p class="set-problem">Ardea cannot use this value: {{ st.problem }}.</p>{% endif %}
 </div>
 {% endmacro %}
 
-{% macro password_box() %}
-{% if needs_password %}
-<div class="set-confirm">
-	<label class="set-label" for="confirm_password">Your password</label>
-	<input class="form-control" type="password" id="confirm_password" name="confirm_password" autocomplete="current-password" />
-	<p class="set-help">Needed when you change a key, password, the licence, the pack server or a SIEM.</p>
-</div>
+{% macro fields_of(names) %}{% for n in names %}{% if n in fields_by_name %}{{ field(fields_by_name[n]) }}{% endif %}{% endfor %}{% endmacro %}
+
+{% macro basic_and_advanced(sts) %}
+<div class="set-grid">{% for st in sts if not st.f.advanced and st.f.name != "NOTIFY_CHANNELS" %}{{ field(st) }}{% endfor %}</div>
+{% set adv = sts | selectattr("f.advanced") | list %}
+{% if adv %}
+<details class="set-advanced">
+	<summary>Advanced settings <span class="set-help d-inline">(most people never change these)</span></summary>
+	<div class="set-grid">{% for st in adv %}{{ field(st) }}{% endfor %}</div>
+</details>
 {% endif %}
 {% endmacro %}
 
@@ -56,26 +55,57 @@
 <span class="set-test"><button type="button" class="btn {{ 'btn-primary' if primary else 'btn-outline-light' }} btn-sm" data-test="{{ kind }}" {% if reload %}data-reload="1"{% endif %}>{{ label }}</button><span class="set-test__result" aria-live="polite"></span></span>
 {% endmacro %}
 
+{% macro save_bar(label="Save changes") %}
+<div class="set-savebar">
+	<button type="submit" class="btn btn-primary">{{ label }}</button>
+	<span class="set-dirty" hidden>You have unsaved changes.</span>
+	{{ caller() if caller }}
+</div>
+{% endmacro %}
+
 {% block body %}
-<main class="settings-page">
-	<div class="ins-head">
-		<div>
-			<h1 class="ins-title">Settings</h1>
-			<nav class="ins-tabs" aria-label="Settings sections">
-				{% for key, label in groups %}<a href="/admin/settings/{{ key }}" class="{{ 'is-active' if group == key }}">{{ label }}</a>{% endfor %}
-			</nav>
-		</div>
-	</div>
+<main class="settings-page set-layout" data-needs-password="{{ 'true' if needs_password else 'false' }}">
+	<nav class="set-menu" aria-label="Settings sections">
+		<a href="/admin/settings/overview" class="set-menu__start {{ 'is-active' if group == 'overview' }}">Start here</a>
+		{% for title, keys in menu %}
+		<p class="set-menu__title">{{ title }}</p>
+		{% for key in keys %}
+		<a href="/admin/settings/{{ key }}" class="{{ 'is-active' if group == key }}">{% if title == "Set up" %}<span class="set-menu__n">{{ loop.index }}</span>{% endif %}{{ info[key][0] }}</a>
+		{% endfor %}
+		{% endfor %}
+		<p class="set-menu__title">History</p>
+		<a href="/admin/settings/audit" class="{{ 'is-active' if group == 'audit' }}">Change log</a>
+	</nav>
+
+	<div class="set-main">
+	<header class="set-head">
+		<h1 class="ins-title">{{ info[group][0] }}</h1>
+		<p class="set-purpose">{{ info[group][1] }}</p>
+	</header>
 
 	{% if not has_key %}
-	<div class="alert alert-warning py-2">The worker has not started with this version yet, so keys and passwords cannot be saved. Start it (<code>docker compose up -d</code>) and reload this page.</div>
+	<div class="alert alert-warning py-2">Passwords and keys cannot be saved yet, because the worker has not started with this version. Start it (<code>docker compose up -d</code>), wait a minute and reload this page.</div>
 	{% endif %}
-	{% if error %}<div class="alert alert-danger py-2" role="alert">{{ error }}</div>{% endif %}
+	{% if error %}<div class="alert alert-danger py-2" role="alert"><strong>Nothing was saved.</strong> {{ error }} Your changes are still in the form below: fix this and save again.</div>{% endif %}
 	{% for n in notes %}<div class="alert alert-success py-2">{{ n }}</div>{% endfor %}
 
-	{% if group == "audit" %}
+	{# ================================================================ START HERE #}
+	{% if group == "overview" %}
+	{% set labels = {"done": "Done", "todo": "To do", "problem": "Needs attention", "optional": "Optional", "locked": "Pro / MSP"} %}
+	<ol class="set-checklist">
+		{% for r in overview %}
+		<li class="set-check set-check--{{ r.state }}">
+			<span class="set-check__state">{{ labels[r.state] }}</span>
+			<div class="set-check__body"><strong>{{ r.title }}</strong><span>{{ r.detail }}</span></div>
+			<a class="btn btn-sm {{ 'btn-primary' if r.state in ('todo', 'problem') else 'btn-outline-light' }}" href="/admin/settings/{{ r.key }}">{{ "Set up" if r.state == "todo" else ("Fix" if r.state == "problem" else "Open") }}</a>
+		</li>
+		{% endfor %}
+	</ol>
+	<p class="set-help">The first four are what Ardea needs to work: a licence (or the free edition), a SIEM to read alerts from, an AI model, and a way to tell your team. Everything else is optional and can wait.</p>
+
+	{# ================================================================ CHANGE LOG #}
+	{% elif group == "audit" %}
 	<div class="card shadow-sm"><div class="card-body">
-		<p class="set-help mb-2">Every change made on this page: who, what and when. Values are never recorded.</p>
 		<table class="table table-sm set-audit">
 			<thead><tr><th>When</th><th>Who</th><th>Setting</th><th>Change</th></tr></thead>
 			<tbody>
@@ -85,88 +115,107 @@
 		</table>
 	</div></div>
 
+	{# ================================================================ SIEMS #}
 	{% elif group == "siems" %}
 	{% if siems.file %}
-	<div class="alert alert-info py-2">The SIEMs come from <code>siems/siems.json</code> on the server, so they are read-only here. Remove that file to manage them on this page.</div>
+	<div class="alert alert-info py-2">Your SIEMs are set in the file <code>siems/siems.json</code> on the server, so they are read-only here. To manage them on this page, remove that file.</div>
 	{% else %}
 	{% if siems.env_url and not siems["items"] %}
-	<div class="alert alert-info py-2">A SIEM from <code>.env</code> (<code>{{ siems.env_url.value }}</code>) is active. Adding a SIEM here replaces it, and its alerts move to the first SIEM in this list.</div>
+	<div class="alert alert-info py-2">A SIEM from the <code>.env</code> file (<code>{{ siems.env_url.value }}</code>) is in use. If you add a SIEM here, it replaces that one.</div>
 	{% endif %}
 	{% if siems["items"] | length > 1 and not msp %}
-	<div class="alert alert-warning py-2">Your edition collects alerts from the first SIEM only. Several SIEMs need Ardea MSP.</div>
+	<div class="alert alert-warning py-2">Your edition reads alerts from the first SIEM in the list only. Several SIEMs need Ardea MSP.</div>
 	{% endif %}
 
 	{% if edit %}
 	{% set s = ev.saved %}
 	<div class="card shadow-sm mb-3"><div class="card-body">
-		<h2 class="h6 mb-3">{{ "Change " ~ s.name if s else "Add a SIEM" }}</h2>
-		<form method="post" action="/admin/settings/siems/save" class="set-form" autocomplete="off">
+		<h2 class="h5 mb-3">{{ "Change " ~ s.name if s else "Add a SIEM" }}</h2>
+		<form method="post" action="/admin/settings/siems/save" class="set-form" autocomplete="off" data-password="always">
 			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
 			{% if s %}<input type="hidden" name="siem_id" value="{{ s.id }}" />{% endif %}
+
+			<h3 class="set-step"><span>1</span> Name it</h3>
 			<div class="set-grid">
-				<div class="set-field"><label class="set-label" for="s-id">ID</label>
-					<input class="form-control" id="s-id" name="id" value="{{ s.id if s else ev.get('id', '') }}" {% if s %}disabled{% endif %} pattern="[a-z0-9][a-z0-9_-]{0,31}" required spellcheck="false" />
-					<p class="set-help">Short and permanent, e.g. <code>hq</code> or <code>acme</code>. Stored with every alert.</p></div>
 				<div class="set-field"><label class="set-label" for="s-name">Name</label>
-					<input class="form-control" id="s-name" name="name" value="{{ ev.get('name', '') }}" placeholder="Head office" /></div>
-				<div class="set-field"><label class="set-label" for="s-url">Elasticsearch URL</label>
+					<input class="form-control" id="s-name" name="name" value="{{ ev.get('name', '') }}" placeholder="Head office" />
+					<p class="set-help">Any name you like. It is shown in the console and in messages.</p></div>
+				<div class="set-field"><label class="set-label" for="s-id">Short ID</label>
+					<input class="form-control" id="s-id" name="id" value="{{ s.id if s else ev.get('id', '') }}" {% if s %}disabled{% endif %} pattern="[a-z0-9][a-z0-9_-]{0,31}" required spellcheck="false" placeholder="hq" />
+					<p class="set-help">Small letters and numbers only, for example <code>hq</code> or <code>acme</code>. It can never be changed later.</p></div>
+			</div>
+
+			<h3 class="set-step"><span>2</span> Where it is</h3>
+			<div class="set-grid">
+				<div class="set-field"><label class="set-label" for="s-url">Elasticsearch address</label>
 					<input class="form-control" id="s-url" name="url" value="{{ ev.get('url', '') }}" placeholder="https://elastic.example.local:9200" required spellcheck="false" />
-					{% if s %}<p class="set-help">Changing it clears the saved API keys: enter them again.</p>{% endif %}</div>
-				<div class="set-field"><label class="set-label" for="s-kibana">Kibana URL</label>
+					<p class="set-help">Usually ends in <code>:9200</code>.{% if s %} Changing it deletes the saved API keys, so enter them again.{% endif %}</p></div>
+				<div class="set-field"><label class="set-label" for="s-kibana">Kibana address <span class="set-opt">optional</span></label>
 					<input class="form-control" id="s-kibana" name="kibana_url" value="{{ ev.get('kibana_url', '') }}" placeholder="https://kibana.example.local:5601" spellcheck="false" />
-					<p class="set-help">For the "Open in Kibana" links.</p></div>
-				{% for key, label, help in (("fetcher_api_key", "Fetcher API key", "Read-only, alerts index only (elastic/roles.json)."), ("worker_api_key", "Worker API key", "Read-only, alerts and logs-* (elastic/roles.json).")) %}
+					<p class="set-help">For the "Open in Kibana" buttons.</p></div>
+			</div>
+
+			<h3 class="set-step"><span>3</span> The two read-only keys</h3>
+			<p class="set-help">In Kibana: <b>Stack Management → API keys → Create API key</b>, once for each key below, with the role from the file <code>elastic/roles.json</code>. Copy the <b>Encoded</b> value. Ardea can only read; it can never change anything in your SIEM.</p>
+			<div class="set-grid">
+				{% for key, label, help in (("fetcher_api_key", "Key for collecting alerts", "Role \"ardea_fetcher\": reads the alerts only."), ("worker_api_key", "Key for investigating", "Role \"ardea_worker\": reads alerts and logs.")) %}
 				{% set sec = s.secrets[key] if s else {} %}
 				<div class="set-field"><label class="set-label" for="s-{{ key }}">{{ label }}</label>
 					<input class="form-control" type="password" id="s-{{ key }}" name="{{ key }}" autocomplete="new-password" {% if not has_key %}disabled{% endif %}
-						placeholder="{% if sec.set %}Saved{% if sec.hint %} (ends in {{ sec.hint }}){% endif %}. Type to replace it.{% else %}Not set{% endif %}" />
-					{% if sec.set %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="{{ key }}__clear" value="1" /> Remove</label>{% endif %}
+						placeholder="{% if sec.set %}Saved{% if sec.hint %} (ends in {{ sec.hint }}){% endif %}. Type only to replace it.{% else %}Paste the Encoded key{% endif %}" />
+					{% if sec.set %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="{{ key }}__clear" value="1" /> Delete the saved key</label>{% endif %}
 					<p class="set-help">{{ help }}</p>
-					{% if sec.problem %}<p class="set-problem">{{ sec.problem }}.</p>{% endif %}</div>
+					{% if sec.problem %}<p class="set-problem">Enter it again: {{ sec.problem }}.</p>{% endif %}</div>
 				{% endfor %}
-				<div class="set-field"><label class="set-label" for="s-alerts">Alerts index</label>
-					<input class="form-control" id="s-alerts" name="alerts_index" value="{{ ev.get('alerts_index', '') }}" placeholder=".alerts-security.alerts-default" spellcheck="false" /></div>
-				<div class="set-field"><label class="set-label" for="s-events">Event indices</label>
-					<input class="form-control" id="s-events" name="events_indices" value="{{ ev.get('events_indices', '') }}" placeholder="logs-*" spellcheck="false" /></div>
-				<div class="set-field set-wide"><label class="set-label" for="s-ca">CA certificate (PEM)</label>
-					<textarea class="form-control set-lines" id="s-ca" name="ca_pem" rows="3" spellcheck="false" placeholder="{% if s and s.ca_pem %}A certificate is saved. Paste a new one to replace it.{% else %}Only if the cluster uses a private certificate authority.{% endif %}"></textarea>
-					{% if s and s.ca_pem %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="ca_pem__clear" value="1" /> Remove the saved certificate</label>{% endif %}</div>
-				<div class="set-field"><label class="form-check"><input class="form-check-input" type="checkbox" name="enabled" value="true" {% if ev.enabled %}checked{% endif %} /> Collect alerts from this SIEM</label></div>
 			</div>
+			<div class="set-field"><label class="form-check form-switch set-switch"><input class="form-check-input" type="checkbox" role="switch" name="enabled" value="true" {% if ev.enabled %}checked{% endif %} /> Read alerts from this SIEM</label>
+				<p class="set-help">Turn it off to pause this SIEM without deleting it.</p></div>
 
-			<h3 class="set-sub">For this customer {% if not msp %}<span class="set-badge">MSP</span>{% endif %}</h3>
-			<div class="set-grid">
-				<div class="set-field set-wide"><label class="set-label" for="s-context">Facts about this environment</label>
-					<textarea class="form-control set-lines" id="s-context" name="context" rows="3" placeholder="Backups run nightly as svc.backup from D:\Scripts">{{ ev.get('context', '') }}</textarea>
-					<p class="set-help">One per line. The model treats them as trusted facts.</p></div>
-				<div class="set-field"><label class="set-label" for="s-report">Monthly report to</label>
-					<input class="form-control" id="s-report" name="report_to" value="{{ ev.get('report_to', '') }}" placeholder="it-manager@customer.example" /></div>
-				<div class="set-field"><label class="set-label" for="s-smtp">Alerts by e-mail to</label>
-					<input class="form-control" id="s-smtp" name="notify_smtp_to" value="{{ ev.get('notify_smtp_to', '') }}" placeholder="soc@customer.example" /></div>
-				{% for key, label in (("notify.slack_webhook_url", "Slack webhook URL"), ("notify.teams_webhook_url", "Teams webhook URL"), ("notify.webhook_url", "Webhook URL"), ("notify.webhook_secret", "Webhook signing secret")) %}
-				{% set sec = s.secrets[key] if s else {} %}
-				<div class="set-field"><label class="set-label" for="s-{{ key }}">{{ label }}</label>
-					<input class="form-control" type="password" id="s-{{ key }}" name="{{ key | replace('.', '_') }}" autocomplete="new-password" {% if not has_key %}disabled{% endif %}
-						placeholder="{% if sec.set %}Saved. Type to replace it.{% else %}Not set{% endif %}" />
-					{% if sec.set %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="{{ key | replace('.', '_') }}__clear" value="1" /> Remove</label>{% endif %}</div>
-				{% endfor %}
-			</div>
-			{{ password_box() }}
-			<div class="set-actions">
-				<button type="submit" class="btn btn-primary">Save SIEM</button>
-				<a class="btn btn-outline-light" href="/admin/settings/siems">Cancel</a>
-			</div>
+			<details class="set-advanced">
+				<summary>Advanced settings <span class="set-help d-inline">(only if your Elastic setup is not standard)</span></summary>
+				<div class="set-grid">
+					<div class="set-field"><label class="set-label" for="s-alerts">Where the alerts are (index)</label>
+						<input class="form-control" id="s-alerts" name="alerts_index" value="{{ ev.get('alerts_index', '') }}" placeholder=".alerts-security.alerts-default" spellcheck="false" /></div>
+					<div class="set-field"><label class="set-label" for="s-events">Where the logs are (indices)</label>
+						<input class="form-control" id="s-events" name="events_indices" value="{{ ev.get('events_indices', '') }}" placeholder="logs-*" spellcheck="false" /></div>
+					<div class="set-field set-wide"><label class="set-label" for="s-ca">Certificate authority (PEM)</label>
+						<textarea class="form-control set-lines" id="s-ca" name="ca_pem" rows="3" spellcheck="false" placeholder="{% if s and s.ca_pem %}A certificate is saved. Paste a new one to replace it.{% else %}Only if your Elasticsearch uses its own certificate authority.{% endif %}"></textarea>
+						{% if s and s.ca_pem %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="ca_pem__clear" value="1" /> Delete the saved certificate</label>{% endif %}</div>
+				</div>
+			</details>
+
+			<details class="set-advanced" {% if ev.get('context') or ev.get('report_to') or ev.get('notify_smtp_to') %}open{% endif %}>
+				<summary>Settings for this customer {% if not msp %}<span class="set-badge">MSP only</span>{% endif %} <span class="set-help d-inline">(only if you look after several customers)</span></summary>
+				<div class="set-grid">
+					<div class="set-field set-wide"><label class="set-label" for="s-context">Facts about this customer's network</label>
+						<textarea class="form-control set-lines" id="s-context" name="context" rows="3" placeholder="Backups run every night as svc.backup from D:\Scripts">{{ ev.get('context', '') }}</textarea>
+						<p class="set-help">One fact per line. The model trusts them when it investigates this customer's alerts.</p></div>
+					<div class="set-field"><label class="set-label" for="s-report">Send this customer a monthly report at</label>
+						<input class="form-control" id="s-report" name="report_to" value="{{ ev.get('report_to', '') }}" placeholder="it-manager@customer.example" />
+						<p class="set-help">Only their own alerts, under your brand. Empty = no report for them.</p></div>
+					<div class="set-field"><label class="set-label" for="s-smtp">Also e-mail this customer's alerts to</label>
+						<input class="form-control" id="s-smtp" name="notify_smtp_to" value="{{ ev.get('notify_smtp_to', '') }}" placeholder="soc@customer.example" />
+						<p class="set-help">A copy for the customer. Your own team still gets them too.</p></div>
+					{% for key, label in (("notify.slack_webhook_url", "Customer's Slack webhook"), ("notify.teams_webhook_url", "Customer's Teams webhook"), ("notify.webhook_url", "Customer's webhook address"), ("notify.webhook_secret", "Webhook signing secret")) %}
+					{% set sec = s.secrets[key] if s else {} %}
+					<div class="set-field"><label class="set-label" for="s-{{ key }}">{{ label }}</label>
+						<input class="form-control" type="password" id="s-{{ key }}" name="{{ key | replace('.', '_') }}" autocomplete="new-password" {% if not has_key %}disabled{% endif %}
+							placeholder="{% if sec.set %}Saved. Type only to replace it.{% else %}Not set{% endif %}" />
+						{% if sec.set %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="{{ key | replace('.', '_') }}__clear" value="1" /> Delete</label>{% endif %}</div>
+					{% endfor %}
+				</div>
+			</details>
+			{% call save_bar("Save SIEM") %}<a class="btn btn-outline-light" href="/admin/settings/siems">Cancel</a>{% endcall %}
 		</form>
 		{% if ev.from_template %}<p class="set-help">Started from the default template "{{ ev.from_template }}".</p>{% endif %}
 		{% if s %}
-		<form method="post" action="/admin/settings/siems/{{ s.id }}/delete" class="set-delete">
+		<form method="post" action="/admin/settings/siems/{{ s.id }}/delete" class="set-delete" data-password="always">
 			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
 			<h3 class="set-sub">Remove this SIEM</h3>
-			<p class="set-help">Ardea stops collecting from it. Its alerts and verdicts stay, unless you tick the box below.</p>
+			<p class="set-help">Ardea stops reading from it. Its alerts and verdicts stay, unless you tick the box below.</p>
 			<label class="form-check"><input class="form-check-input" type="checkbox" name="purge" value="1" /> Also delete everything stored for it: alerts, verdicts, investigation steps, feedback, queue history, questions, suppressions and its health status. This cannot be undone.</label>
 			<div class="set-field mt-2 mb-2"><label class="set-label" for="s-confirm">To delete its data, type its ID: <code>{{ s.id }}</code></label>
 				<input class="form-control form-control-sm" id="s-confirm" name="confirm_id" autocomplete="off" spellcheck="false" /></div>
-			{{ password_box() }}
 			<button type="submit" class="btn btn-outline-danger btn-sm">Remove {{ s.name }}</button>
 		</form>
 		{% endif %}
@@ -175,13 +224,13 @@
 	<div class="card shadow-sm mb-3"><div class="card-body">
 		{% if siems["items"] %}
 		<table class="table table-sm set-siems">
-			<thead><tr><th>Name</th><th>Elasticsearch</th><th>Keys</th><th></th></tr></thead>
+			<thead><tr><th>Name</th><th>Address</th><th>Keys</th><th></th></tr></thead>
 			<tbody>
 			{% for s in siems["items"] %}
 			<tr>
-				<td><strong>{{ s.name }}</strong> <code>{{ s.id }}</code>{% if not s.get('enabled', true) %} <span class="text-secondary">(off)</span>{% endif %}{% if loop.first and siems["items"] | length > 1 %} <span class="set-badge">first</span>{% endif %}</td>
+				<td><strong>{{ s.name }}</strong> <code>{{ s.id }}</code>{% if not s.get('enabled', true) %} <span class="text-secondary">(paused)</span>{% endif %}{% if loop.first and siems["items"] | length > 1 %} <span class="set-badge">first</span>{% endif %}</td>
 				<td><code>{{ s.url }}</code></td>
-				<td>{{ "fetcher ✓" if s.secrets.fetcher_api_key.set else "fetcher missing" }} · {{ "worker ✓" if s.secrets.worker_api_key.set else "worker missing" }}
+				<td>{% if s.secrets.fetcher_api_key.set and s.secrets.worker_api_key.set %}<span class="set-ok">Both keys saved</span>{% else %}<span class="set-problem">{{ "Collecting key missing" if not s.secrets.fetcher_api_key.set else "Investigating key missing" }}</span>{% endif %}
 					{% if s.secrets.fetcher_api_key.problem or s.secrets.worker_api_key.problem %}<span class="set-problem d-block">A key must be entered again.</span>{% endif %}</td>
 				<td class="set-row-actions">
 					{{ test_button("siem:" ~ s.id, "Test") }}
@@ -193,10 +242,10 @@
 			</tbody>
 		</table>
 		{% else %}
-		<p class="text-secondary">No SIEM is configured on this page yet.</p>
+		<p>No SIEM yet. Click <b>Add a SIEM</b> to connect your Elastic cluster: it takes about five minutes.</p>
 		{% endif %}
 		<a class="btn btn-primary btn-sm" href="/admin/settings/siems?edit=new">Add a SIEM</a>
-		<p class="set-help mt-2">Create the two read-only API keys in Kibana with the roles in <code>elastic/roles.json</code>. Tests use the saved values and run in the worker, so they can take a minute while it investigates an alert.</p>
+		<p class="set-help mt-2"><b>Test</b> checks that Ardea can reach the SIEM with the saved keys. It can take a minute if Ardea is busy with an alert.</p>
 	</div></div>
 
 	{% if template %}
@@ -206,46 +255,43 @@
 			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
 			{% if tv.old_name %}<input type="hidden" name="old_name" value="{{ tv.old_name }}" />{% endif %}
 			<div class="set-grid">
-				<div class="set-field"><label class="set-label" for="t-name">Name</label>
+				<div class="set-field"><label class="set-label" for="t-name">Template name</label>
 					<input class="form-control" id="t-name" name="name" value="{{ tv.get('name', '') }}" maxlength="60" required placeholder="Windows customers" /></div>
-				<div class="set-field"><label class="form-check mt-4"><input class="form-check-input" type="checkbox" name="default" value="1" {{ 'checked' if tv.default }} /> Start every new SIEM from this template</label></div>
-				<div class="set-field"><label class="set-label" for="t-alerts">Alerts index</label>
+				<div class="set-field"><label class="form-check form-switch set-switch mt-4"><input class="form-check-input" type="checkbox" role="switch" name="default" value="1" {{ 'checked' if tv.default }} /> Fill in every new SIEM from this template</label></div>
+				<div class="set-field"><label class="set-label" for="t-alerts">Where the alerts are (index)</label>
 					<input class="form-control" id="t-alerts" name="alerts_index" value="{{ tv.get('alerts_index', '') }}" placeholder="Leave empty to keep each SIEM's own" spellcheck="false" /></div>
-				<div class="set-field"><label class="set-label" for="t-events">Event indices</label>
+				<div class="set-field"><label class="set-label" for="t-events">Where the logs are (indices)</label>
 					<input class="form-control" id="t-events" name="events_indices" value="{{ tv.get('events_indices', '') }}" placeholder="logs-endpoint.*, logs-windows.*" spellcheck="false" /></div>
 				<div class="set-field set-wide"><label class="set-label" for="t-context">Facts true for every customer it is applied to</label>
 					<textarea class="form-control set-lines" id="t-context" name="context" rows="3" placeholder="Our RMM agent C:\Program Files\RMM\agent.exe runs scripts as SYSTEM">{{ tv.get('context', '') }}</textarea>
-					<label class="form-check set-clear"><input class="form-check-input" type="radio" name="context_mode" value="add" {{ 'checked' if tv.context_mode != 'replace' }} /> Add to each SIEM's own facts</label>
-					<label class="form-check set-clear"><input class="form-check-input" type="radio" name="context_mode" value="replace" {{ 'checked' if tv.context_mode == 'replace' }} /> Replace each SIEM's facts</label></div>
+					<label class="form-check set-clear"><input class="form-check-input" type="radio" name="context_mode" value="add" {{ 'checked' if tv.context_mode != 'replace' }} /> Add them to each SIEM's own facts</label>
+					<label class="form-check set-clear"><input class="form-check-input" type="radio" name="context_mode" value="replace" {{ 'checked' if tv.context_mode == 'replace' }} /> Replace each SIEM's facts with them</label></div>
 				<div class="set-field"><label class="set-label" for="t-report">Monthly report to</label>
 					<input class="form-control" id="t-report" name="report_to" value="{{ tv.get('report_to', '') }}" placeholder="Leave empty to keep each SIEM's own" /></div>
-				<div class="set-field"><label class="set-label" for="t-smtp">Alerts by e-mail to</label>
+				<div class="set-field"><label class="set-label" for="t-smtp">Also e-mail alerts to</label>
 					<input class="form-control" id="t-smtp" name="notify_smtp_to" value="{{ tv.get('notify_smtp_to', '') }}" placeholder="soc@your-company.example" /></div>
 			</div>
-			<p class="set-help">Empty fields leave each SIEM's own value alone. API keys and webhooks are never part of a template.</p>
-			<div class="set-actions">
-				<button type="submit" class="btn btn-primary">Save template</button>
-				<a class="btn btn-outline-light" href="/admin/settings/siems">Cancel</a>
-			</div>
+			<p class="set-help">Empty fields leave each SIEM's own value alone. Keys and webhooks are never part of a template.</p>
+			{% call save_bar("Save template") %}<a class="btn btn-outline-light" href="/admin/settings/siems">Cancel</a>{% endcall %}
 		</form>
 	</div></div>
 	{% endif %}
 
 	<div class="card shadow-sm mb-3"><div class="card-body">
-		<h2 class="h6 mb-2">Settings templates {% if not can_templates %}<span class="set-badge">MSP</span>{% endif %}</h2>
+		<h2 class="h6 mb-2">Settings templates {% if not can_templates %}<span class="set-badge">MSP only</span>{% endif %}</h2>
 		{% if not can_templates %}
-		<p class="set-help mb-0">With Ardea MSP, save the event indices, facts and e-mail addresses that most of your customers share as a template, apply it to many SIEMs in one go, and start every new customer from it.</p>
+		<p class="set-help mb-0">With Ardea MSP, save the settings most of your customers share as a template, apply it to many SIEMs in one go, and start every new customer from it.</p>
 		{% else %}
-		<p class="set-help">Apply shared settings to many customer SIEMs at once. Applying copies the values; changing the template later changes nothing until you apply it again.</p>
+		<p class="set-help">Fill in the same settings for many customers at once. Applying copies the values: changing the template later changes nothing until you apply it again.</p>
 		{% for t in templates %}
 		<div class="set-template">
 			<div><strong>{{ t.name }}</strong>{% if t.default %} <span class="set-badge">new SIEMs</span>{% endif %}
-				<span class="set-help d-block">{% set parts = [] %}{% if t.alerts_index %}{% set _ = parts.append("alerts index") %}{% endif %}{% if t.events_indices %}{% set _ = parts.append("event indices") %}{% endif %}{% if t.context %}{% set _ = parts.append(t.context | length ~ " fact" ~ ("s" if t.context | length != 1 else "") ~ (" (replace)" if t.context_mode == "replace" else " (add)")) %}{% endif %}{% if t.report_to %}{% set _ = parts.append("report recipients") %}{% endif %}{% if t.notify_smtp_to %}{% set _ = parts.append("alert e-mail") %}{% endif %}{{ parts | join(", ") or "empty" }}</span></div>
+				<span class="set-help d-block">{% set parts = [] %}{% if t.alerts_index %}{% set _ = parts.append("alerts index") %}{% endif %}{% if t.events_indices %}{% set _ = parts.append("log indices") %}{% endif %}{% if t.context %}{% set _ = parts.append(t.context | length ~ " fact" ~ ("s" if t.context | length != 1 else "") ~ (" (replace)" if t.context_mode == "replace" else " (add)")) %}{% endif %}{% if t.report_to %}{% set _ = parts.append("report recipients") %}{% endif %}{% if t.notify_smtp_to %}{% set _ = parts.append("alert e-mail") %}{% endif %}{{ parts | join(", ") or "empty" }}</span></div>
 			{% if siems["items"] and not siems.file %}
 			<form method="post" action="/admin/settings/siems/templates/apply" class="set-apply">
 				<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" /><input type="hidden" name="name" value="{{ t.name }}" />
 				{% for s in siems["items"] %}<label class="form-check form-check-inline small"><input class="form-check-input" type="checkbox" name="siem" value="{{ s.id }}" /> {{ s.name }}</label>{% endfor %}
-				<button class="btn btn-primary btn-sm">Apply</button>
+				<button class="btn btn-primary btn-sm">Apply to the ticked SIEMs</button>
 			</form>
 			{% endif %}
 			<div class="set-row-actions">
@@ -263,30 +309,30 @@
 	{% if leftovers and not edit %}
 	<div class="card shadow-sm mb-3"><div class="card-body">
 		<h2 class="h6 mb-2">Data from SIEMs that are no longer configured</h2>
-		<p class="set-help">Their alerts and verdicts are still stored. Delete everything stored for one of them: alerts, verdicts, investigation steps, feedback, queue history, questions, suppressions and its health status. This cannot be undone.</p>
+		<p class="set-help">Their alerts and verdicts are still stored. You can delete everything stored for one of them: alerts, verdicts, investigation steps, feedback, queue history, questions, suppressions and its health status. This cannot be undone.</p>
 		{% for l in leftovers %}
-		<form method="post" action="/admin/settings/siems/{{ l.siem }}/purge" class="set-purge">
+		<form method="post" action="/admin/settings/siems/{{ l.siem }}/purge" class="set-purge" data-password="always">
 			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
 			<div><strong>{{ l.name or l.siem }}</strong> <code>{{ l.siem }}</code> <span class="set-help">{{ l.alerts }} alert{{ 's' if l.alerts != 1 }}{% if l.last %}, last {{ l.last | localtime("%d/%m/%Y") }}{% endif %}</span></div>
 			<input class="form-control form-control-sm" name="confirm_id" placeholder="Type {{ l.siem }} to confirm" autocomplete="off" spellcheck="false" aria-label="Type the SIEM ID to confirm" />
-			{{ password_box() }}
 			<button class="btn btn-outline-danger btn-sm">Delete its data</button>
 		</form>
 		{% endfor %}
 	</div></div>
 	{% endif %}
 
+	{# ================================================================ EVERY OTHER SECTION #}
 	{% else %}
 	{% if group == "licence" %}
 	<div class="card shadow-sm mb-3 license-card"><div class="card-body">
-		<h2 class="h6">Edition: <span class="license-edition license-edition--{{ license.edition }}">{{ editions_names[license.edition] }}</span></h2>
+		<h2 class="h6">You are using: <span class="license-edition license-edition--{{ license.edition }}">{{ editions_names[license.edition] }}</span></h2>
 		<p class="mb-1 text-secondary small">
 			{% if license.source == "key" %}Licence key{% if license.product %}: {{ license.product }}{% endif %}{% if license.customer %} · {{ license.customer }}{% endif %}
 			{% elif license.source == "offline" %}Offline licence{% if license.customer %} · {{ license.customer }}{% endif %}
-			{% else %}No licence: the free Community edition.{% endif %}
+			{% else %}No licence: the free Community edition. Everything that triages alerts works; Pro and MSP add the extra features.{% endif %}
 			{% if license.edition != "community" and license.valid_until %} · valid until {{ license.valid_until | localtime }}{% endif %}
 		</p>
-		{% if license.last_error %}<div class="alert alert-warning py-2 small mb-0">Licence check: {{ license.last_error }}</div>{% endif %}
+		{% if license.last_error %}<div class="alert alert-warning py-2 small mb-0">Licence problem: {{ license.last_error }}</div>{% endif %}
 	</div></div>
 	{% endif %}
 
@@ -294,7 +340,7 @@
 	{% set cur = packs.current %}
 	<div class="card shadow-sm mb-3 pack-card"><div class="card-body">
 		{% if not pack_feature %}
-		<div class="alert alert-info py-2 small mb-3">The playbook pack comes with Ardea Pro and MSP: expert guidance for noisy Elastic rules, updated every month. <a href="/admin/settings/licence">Add your licence</a> first.</div>
+		<div class="alert alert-info py-2 small mb-3">The playbook pack comes with Ardea Pro and MSP. <a href="/admin/settings/licence">Add your licence</a> first.</div>
 		{% endif %}
 		{% if cur %}
 		{% set s = cur.summary or {} %}{% set c = s.get("counts", {}) %}
@@ -306,7 +352,7 @@
 		</p>
 		{% else %}
 		<h2 class="h6 mb-1">No playbook pack installed</h2>
-		<p class="text-secondary small mb-2">Install it with one click. The worker downloads the newest pack, checks its signature and uses it from the next alert.</p>
+		<p class="text-secondary small mb-2">Click the button: Ardea downloads the newest pack, checks it and uses it from the next alert.</p>
 		{% endif %}
 		<div class="set-actions mt-0">
 			{{ test_button("pack:install", "Install the latest pack" if not cur else "Check for a newer pack", reload=true, primary=not cur) }}
@@ -328,19 +374,21 @@
 	</details>
 	{% endif %}
 
-	<form method="post" action="/admin/settings/playbooks/upload" class="card shadow-sm mb-3 set-form" enctype="multipart/form-data">
-		<div class="card-body">
+	<details class="card shadow-sm mb-3">
+		<summary class="card-body py-2">No internet on this server? Upload a pack file</summary>
+		<form method="post" action="/admin/settings/playbooks/upload" class="card-body pt-0 set-form" enctype="multipart/form-data">
 			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
-			<label class="set-label" for="f-pack">Upload a pack file</label>
+			<label class="set-label" for="f-pack">Pack file (.ardpack)</label>
 			<input class="form-control" type="file" id="f-pack" name="PACK" accept=".ardpack,application/json" />
-			<p class="set-help">For servers without internet access: download the <code>.ardpack</code> file from your customer portal on another computer, then upload it here. Its signature is checked before it is used.</p>
+			<p class="set-help">Download it from your customer portal on another computer, then upload it here. Ardea checks it before using it.</p>
 			<div class="set-actions"><button type="submit" class="btn btn-outline-light btn-sm">Upload</button></div>
-		</div>
-	</form>
+		</form>
+	</details>
 
 	{% if packs.installed or packs.others %}
-	<div class="card shadow-sm mb-3"><div class="card-body">
-		<h2 class="h6">Pack history</h2>
+	<details class="card shadow-sm mb-3">
+		<summary class="card-body py-2">Pack history</summary>
+		<div class="card-body pt-0">
 		<table class="table table-sm align-middle mb-0 set-table">
 			<thead><tr><th>Version</th><th>How</th><th>When</th><th>Result</th><th></th></tr></thead>
 			<tbody>
@@ -354,42 +402,93 @@
 			</tbody>
 		</table>
 		<p class="set-help mt-2 mb-0">The newest installed version is used. Remove it to go back to the one before.</p>
-	</div></div>
+		</div>
+	</details>
 	{% endif %}
 	{% endif %}
 
-	<form method="post" action="/admin/settings/{{ group }}" class="card shadow-sm set-form" {% if group == "reports" %}enctype="multipart/form-data"{% endif %} autocomplete="off">
-		<div class="card-body">
-			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
-			<div class="set-grid">
-				{% set sections = {"SMTP_HOST": "E-mail", "NTFY_URL": "ntfy", "SLACK_WEBHOOK_URL": "Slack and Teams", "WEBHOOK_URL": "Webhook", "JIRA_URL": "Jira", "THEHIVE_URL": "TheHive", "NOTIFY_PROXY": "Network", "AGENT_MAX_STEPS": "Investigation limits", "IGNORED_RULES": "Alert collection", "SEARXNG_URL": "Search providers", "INTERNAL_DOMAINS": "What must never be searched", "ARDEA_BRAND_NAME": "Branding (MSP)", "ARDEA_LICENSE_PROXY": "Network", "SOURCE_SILENCE_MINUTES": "Silent sources", "HOST_WATCH": "Watched hosts", "DIGEST_TIME": "Handover digest"} %}
-				{% for st in fields %}{% if st.f.name in sections %}<h3 class="set-sub set-wide">{{ sections[st.f.name] }}</h3>{% endif %}{{ field(st) }}{% endfor %}
-				{% if group == "reports" %}
-				<div class="set-field">
-					<label class="set-label" for="f-logo">Your logo {% if edition != "msp" %}<span class="set-badge">MSP</span>{% endif %}</label>
-					<input class="form-control" type="file" id="f-logo" name="BRAND_LOGO" accept="image/png,image/jpeg,image/webp" />
-					<p class="set-help">PNG, JPEG or WebP, up to 200 KB. {% if logo %}A logo is saved.{% endif %}</p>
-					{% if logo %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="BRAND_LOGO__clear" value="1" /> Remove the saved logo</label>{% endif %}
+	<form method="post" action="/admin/settings/{{ group }}" class="set-form" {% if group == "reports" %}enctype="multipart/form-data"{% endif %} autocomplete="off" {% if group == "licence" %}data-password="always"{% else %}data-password="sensitive"{% endif %}>
+		<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+
+		{% if group == "notifications" %}
+		{% set chan = fields_by_name["NOTIFY_CHANNELS"] %}
+		<div class="card shadow-sm mb-3"><div class="card-body">
+			<h2 class="set-step"><span>1</span> What to tell the team</h2>
+			<div class="set-grid">{{ fields_of(["NOTIFY_VERDICTS", "NOTIFY_MIN_SEVERITY", "ARDEA_PUBLIC_URL"]) }}</div>
+		</div></div>
+
+		<div class="card shadow-sm mb-3"><div class="card-body">
+			<h2 class="set-step"><span>2</span> How to tell them</h2>
+			<p class="set-help">Switch on one or more. Each one asks only for what it needs.{% if chan.needs %} <b>Messages need Ardea Pro or MSP.</b>{% endif %}</p>
+			{% if chan.env %}<p class="set-env">The list of channels is set in the <code>.env</code> file on the server: <code>{{ chan.env_value }}</code>.</p>{% endif %}
+			<div class="set-channels">
+			{% for ch, names in channel_fields.items() %}
+			{% set ci = channel_info[ch] %}
+			<section class="set-channel" data-channel="{{ ch }}">
+				<label class="set-channel__head form-check form-switch">
+					<input class="form-check-input" type="checkbox" role="switch" name="NOTIFY_CHANNELS" value="{{ ch }}" {% if ch in chan.selected %}checked{% endif %} {% if chan.env %}disabled{% endif %} />
+					<span><strong>{{ ci[0] }}</strong>{% if ci[2] == "integrations" and not can_integrations %} <span class="set-badge">Pro / MSP</span>{% endif %}<span class="set-help d-block mb-0">{{ ci[1] }}</span></span>
+				</label>
+				<div class="set-channel__body">
+					<div class="set-grid">{{ fields_of(names) }}</div>
+					<div class="set-channel__test">{{ test_button("notify:" ~ ch, "Send a test message") }} <span class="set-help d-inline">Save first: the test uses the saved settings.</span></div>
 				</div>
-				{% endif %}
+			</section>
+			{% endfor %}
 			</div>
-			{% if group in ("licence", "notifications", "websearch", "reports", "playbooks") %}{{ password_box() }}{% endif %}
-			<div class="set-actions">
-				<button type="submit" class="btn btn-primary">Save</button>
-				{% if group == "licence" %}{{ test_button("licence", "Check the licence now") }}{% endif %}
-				{% if group == "ai" %}{{ test_button("llm", "Test the connection") }}{% endif %}
-				{% if group == "monitoring" %}{{ test_button("health", "Check the sources now") }}{{ test_button("digest", "Send a digest now") }}{% endif %}
+		</div></div>
+
+		<div class="card shadow-sm mb-3"><div class="card-body set-who">
+			<h2 class="h6">Who gets which e-mail</h2>
+			<ul class="mb-0">
+				<li><b>Your team</b>: real attacks, the daily summary and warnings, at the addresses under E-mail above.</li>
+				<li><b>Your manager</b>: the management report, set under <a href="/admin/settings/reports">Reports and branding</a>.</li>
+				<li><b>A customer</b> (MSP): a copy of their own alerts and their own report, set on <a href="/admin/settings/siems">their SIEM</a>.</li>
+			</ul>
+			<p class="set-help mb-0 mt-1">All of them are sent through the mail server you set under E-mail above.</p>
+		</div></div>
+
+		<details class="set-advanced card shadow-sm mb-3"><summary class="card-body py-2">Advanced settings <span class="set-help d-inline">(most people never change these)</span></summary>
+			<div class="card-body pt-0"><div class="set-grid">{% for st in fields if st.f.advanced %}{{ field(st) }}{% endfor %}</div></div>
+		</details>
+
+		{% else %}
+		<div class="card shadow-sm mb-3"><div class="card-body">
+			{{ basic_and_advanced(fields) }}
+			{% if group == "reports" %}
+			<div class="set-grid">
+			<div class="set-field">
+				<label class="set-label" for="f-logo">Your logo {% if edition != "msp" %}<span class="set-badge">MSP only</span>{% endif %}</label>
+				<input class="form-control" type="file" id="f-logo" name="BRAND_LOGO" accept="image/png,image/jpeg,image/webp" data-sensitive />
+				<p class="set-help">PNG, JPEG or WebP, up to 200 KB. {% if logo %}A logo is saved.{% endif %}</p>
+				{% if logo %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="BRAND_LOGO__clear" value="1" data-sensitive /> Delete the saved logo</label>{% endif %}
 			</div>
-			{% if group == "notifications" %}
-			<div class="set-tests">
-				<p class="set-help mb-1">Send a test with the saved settings:</p>
-				{% for ch, label in (("smtp", "E-mail"), ("ntfy", "ntfy"), ("slack", "Slack"), ("teams", "Teams"), ("webhook", "Webhook"), ("jira", "Jira"), ("thehive", "TheHive")) %}{{ test_button("notify:" ~ ch, label) }}{% endfor %}
 			</div>
 			{% endif %}
-			{% if group not in ("licence",) %}<p class="set-help mt-2">Changes apply within about 30 seconds, without a restart.</p>{% endif %}
-		</div>
+			{% if group == "licence" %}<div class="set-actions">{{ test_button("licence", "Check the licence now") }}</div>{% endif %}
+			{% if group == "ai" %}<div class="set-actions">{{ test_button("llm", "Test the connection") }} <span class="set-help d-inline">Save first: the test uses the saved settings.</span></div>{% endif %}
+			{% if group == "monitoring" %}<div class="set-actions">{{ test_button("health", "Check the sources now") }}{{ test_button("digest", "Send a summary now") }}</div>{% endif %}
+		</div></div>
+		{% endif %}
+
+		{% call save_bar() %}<span class="set-help d-inline">Ardea uses the new settings within about 30 seconds. No restart needed.</span>{% endcall %}
 	</form>
 	{% endif %}
+	</div>
 </main>
+
+<dialog class="set-dialog" id="pw-dialog" aria-labelledby="pw-title">
+	<form method="dialog" class="set-dialog__box">
+		<h2 class="h5" id="pw-title">Confirm it is you</h2>
+		<p class="set-help">This change touches a password, a key or the licence, so Ardea asks for <b>your own sign-in password</b> (the one you use to log in to this console).</p>
+		<label class="set-label" for="pw-input">Your password</label>
+		<input class="form-control" type="password" id="pw-input" autocomplete="current-password" />
+		<p class="set-problem" id="pw-error" hidden></p>
+		<div class="set-dialog__actions">
+			<button type="button" class="btn btn-primary" id="pw-ok">Confirm and save</button>
+			<button type="button" class="btn btn-outline-light" id="pw-cancel">Cancel</button>
+		</div>
+	</form>
+</dialog>
 <script src="{{ url_for('static', filename='js/settings.js') }}" defer></script>
 {% endblock %}

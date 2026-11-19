@@ -113,7 +113,7 @@ def assignable_users(siem_id: str | None = None) -> list[str]:
 
 
 def update(alert_ids: list[str], actor: str, action: str, assignee: str | None = None, note: str = "",
-           siem_of=None) -> int:
+           siem_of=None, log: bool = True) -> int:
     """take | assign | start | resolve | reopen | unassign, for several alerts at once. Returns how many changed."""
     if action not in ("take", "assign", "start", "resolve", "reopen", "unassign"):
         raise WorkError("Unknown action.")
@@ -154,8 +154,9 @@ def update(alert_ids: list[str], actor: str, action: str, assignee: str | None =
                          {"a": aid, "who": new_assignee, "st": new_status, "note": note, "by": actor})
             what = {"take": "took it", "assign": f"assigned to {new_assignee}", "unassign": "unassigned",
                     "start": "started work", "resolve": f"resolved: {note}", "reopen": "reopened"}[action]
-            conn.execute("INSERT INTO alert_work_log (alert_id, actor, action) VALUES (%s, %s, %s)",
-                         (aid, actor, what[:600]))
+            if log:
+                conn.execute("INSERT INTO alert_work_log (alert_id, actor, action) VALUES (%s, %s, %s)",
+                             (aid, actor, what[:600]))
             changed += 1
         conn.commit()
     return changed

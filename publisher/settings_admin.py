@@ -20,6 +20,46 @@ from db import get_connection
 
 bp = Blueprint("settings", __name__)
 GROUP_NAMES = dict(A.GROUPS)
+# The Settings page menu: the four things everyone sets up, then what is optional.
+MENU = [("Set up", ["licence", "siems", "ai", "notifications"]),
+        ("Optional", ["triage", "websearch", "playbooks", "deadlines", "monitoring", "reports", "nis2"])]
+# Each section: what it is for, and whether you need it. Shown at the top of the section.
+GROUP_INFO = {
+    "overview": ("Start here", "What is set up, what is missing, and what to do next."),
+    "licence": ("Licence", "Free Community edition, or your Pro or MSP licence key. You can skip this to use the "
+                "free edition."),
+    "siems": ("SIEMs (Elastic)", "Where Ardea reads alerts from. Required: without a SIEM there is nothing to "
+              "investigate."),
+    "ai": ("AI model", "The model that investigates each alert. Required: Ardea needs Ollama with a model."),
+    "notifications": ("Alerts to your team", "How your team hears about real attacks: e-mail, phone push, Slack, "
+                      "Teams and more. Strongly recommended."),
+    "triage": ("How alerts are handled", "When Ardea may close an alert by itself, and which alerts it should "
+               "ignore. The defaults are safe: change them only if you need to."),
+    "websearch": ("Web search", "Optional. Lets Ardea look up public information such as an IP address or a file "
+                  "hash."),
+    "playbooks": ("Playbook pack", "Optional, Pro and MSP. Expert guidance for noisy Elastic rules, updated every "
+                  "month."),
+    "deadlines": ("Queue and deadlines", "Optional, Pro and MSP. Assign alerts to people and set how quickly they "
+                  "must be handled."),
+    "monitoring": ("Monitoring and daily digest", "Optional, Pro and MSP. A warning when a SIEM or an important "
+                   "computer goes quiet, and a daily summary for the team."),
+    "reports": ("Reports and branding", "Optional. A management report by e-mail, and your own name and logo."),
+    "nis2": ("NIS2 details", "Optional, Pro and MSP. Your organisation's details, filled into NIS2 report drafts."),
+    "audit": ("Change log", "Who changed which setting, and when. Values are never recorded."),
+}
+CHANNEL_FIELDS = {"smtp": ["SMTP_HOST", "SMTP_PORT", "SMTP_SECURITY", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
+                           "SMTP_TO"],
+                  "ntfy": ["NTFY_URL", "NTFY_TOPIC", "NTFY_TOKEN"], "slack": ["SLACK_WEBHOOK_URL"],
+                  "teams": ["TEAMS_WEBHOOK_URL"], "webhook": ["WEBHOOK_URL", "WEBHOOK_SECRET"],
+                  "jira": ["JIRA_URL", "JIRA_USER", "JIRA_API_TOKEN", "JIRA_PROJECT", "JIRA_ISSUE_TYPE"],
+                  "thehive": ["THEHIVE_URL", "THEHIVE_API_KEY"]}
+CHANNEL_INFO = {"smtp": ("E-mail", "An e-mail to your team for each real attack.", "notifications"),
+                "ntfy": ("Phone push (ntfy)", "A push message on your phone, with the free ntfy app.", "notifications"),
+                "slack": ("Slack", "A message in a Slack channel.", "integrations"),
+                "teams": ("Microsoft Teams", "A message in a Teams channel.", "integrations"),
+                "webhook": ("Webhook", "A JSON message to your own system.", "integrations"),
+                "jira": ("Jira", "A Jira issue for each real attack.", "integrations"),
+                "thehive": ("TheHive", "An alert in TheHive 5.", "integrations")}
 EMAIL_RE = re.compile(r"^[^@\s,;<>]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$")
 URL_RE = re.compile(r"^https?://[^\s<>\"']{1,490}$")
 CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -745,15 +785,116 @@ def _edit_values(siems_state, edit, form) -> dict:
     return out
 
 
+def _setting(snap, name) -> str:
+    env = snap["env"].get(name)
+    if env and env["value"]:
+        return env["value"]
+    row = snap["rows"].get(name)
+    if row:
+        return "set" if row["secret"] else row["value"]
+    return "set" if env else ""
+
+
+def _overview(conn, snap) -> list[dict]:
+    """The 'Start here' checklist: one row per area, with a plain state and what to do."""
+    lic = _main()._license_view()
+    rows = []
+    ed = lic.get("edition", "community")
+    rows.append({"key": "licence", "title": "Licence", "state": "problem" if lic.get("last_error") and ed == "community"
+                 and (_setting(snap, "ARDEA_LICENSE_KEY") or _setting(snap, "ARDEA_LICENSE_OFFLINE")) else "done",
+                 "detail": (f"{ed.upper()} edition" + (f". Problem: {lic['last_error']}" if lic.get("last_error") else "")
+                            if ed != "community" else
+                            "Free Community edition." + (f" Your licence is not accepted: {lic['last_error']}"
+                                                         if lic.get("last_error") and (_setting(snap, "ARDEA_LICENSE_KEY")
+                                                         or _setting(snap, "ARDEA_LICENSE_OFFLINE")) else
+                                                         " Add a licence key for Pro or MSP."))})
+    siems = _siem_list(snap)
+    activity = {r["service"]: r for r in conn.execute("SELECT service, state, detail, info FROM service_activity")
+                .fetchall()} if conn.execute("SELECT to_regclass('public.service_activity') AS t").fetchone()["t"] else {}
+    fetch, work_ = activity.get("fetcher"), activity.get("worker")
+    n_siems = len(siems) or (1 if snap["env"].get("ELASTIC_URL") or snap["env"].get("SIEMS_FILE") else 0)
+    missing_keys = [s.get("name") or s.get("id") for s in siems
+                    if not snap["rows"].get(A.siem_secret_name(s.get("id", ""), "fetcher_api_key"))
+                    or not snap["rows"].get(A.siem_secret_name(s.get("id", ""), "worker_api_key"))]
+    if not n_siems:
+        st, detail = "todo", "No SIEM yet. Add your Elastic cluster and its two read-only API keys."
+    elif missing_keys:
+        st, detail = "todo", f"API keys missing for {', '.join(missing_keys)}."
+    elif fetch and fetch["state"] == "error":
+        st, detail = "problem", fetch["detail"]
+    elif fetch and (fetch["info"] or {}).get("errors"):
+        st, detail = "problem", fetch["detail"]
+    else:
+        st, detail = "done", f"{n_siems} SIEM{'s' if n_siems != 1 else ''} connected."
+    rows.append({"key": "siems", "title": "SIEMs (Elastic)", "state": st, "detail": detail})
+    model = _setting(snap, "LLM_MODEL")
+    if work_ and work_["state"] == "blocked":
+        st, detail = "problem", work_["detail"]
+    elif not _setting(snap, "LLM_URL") and not model:
+        st, detail = "todo", "Tell Ardea where Ollama runs and which model to use."
+    else:
+        st, detail = "done", f"Model {model or A.BY_NAME['LLM_MODEL'].default}."
+    rows.append({"key": "ai", "title": "AI model", "state": st, "detail": detail})
+    channels = [c for c in _setting(snap, "NOTIFY_CHANNELS").split(",") if c.strip()]
+    if not editions.has("notifications"):
+        st, detail = "locked", "Messages to your team need Pro or MSP. Until then, check the Alerts page."
+    elif not channels:
+        st, detail = "todo", "Nobody is told about real attacks yet. Choose at least one way, such as e-mail."
+    else:
+        st, detail = "done", "By " + ", ".join(CHANNEL_INFO[c.strip()][0] for c in channels if c.strip() in CHANNEL_INFO) + "."
+    rows.append({"key": "notifications", "title": "Alerts to your team", "state": st, "detail": detail})
+    ws = _setting(snap, "WEB_SEARCH_PROVIDER") or "disabled"
+    rows.append({"key": "websearch", "title": "Web search", "state": "optional" if ws == "disabled" else "done",
+                 "detail": "Off." if ws == "disabled" else f"On ({dict(A.BY_NAME['WEB_SEARCH_PROVIDER'].options)[ws]})."})
+    packs = _packs_state(conn)
+    rows.append({"key": "playbooks", "title": "Playbook pack",
+                 "state": "locked" if not editions.has("playbook_pack") else ("done" if packs["current"] else "todo"),
+                 "detail": (f"Version {packs['current']['version']} installed." if packs["current"] else
+                            "Not installed yet: one click on the Playbook pack page.") if editions.has("playbook_pack")
+                 else "Comes with Pro and MSP."})
+    digest = _setting(snap, "DIGEST_TIME") or "off"
+    rows.append({"key": "monitoring", "title": "Daily summary", "state": "locked" if not editions.has("digest") else
+                 ("done" if digest != "off" else "optional"),
+                 "detail": (f"Every day at {digest}." if digest != "off" else "Off.") if editions.has("digest")
+                 else "Comes with Pro and MSP."})
+    rep = _setting(snap, "ARDEA_REPORTS") or "off"
+    rows.append({"key": "reports", "title": "Management report", "state": "locked" if not editions.has("reports") else
+                 ("done" if rep != "off" else "optional"),
+                 "detail": ({"weekly": "Every Monday.", "monthly": "On the 1st of every month."}.get(rep, "Off."))
+                 if editions.has("reports") else "Comes with Pro and MSP."})
+    for name, problem in snap["problems"].items():
+        f = A.BY_NAME.get(name)
+        if f is not None:
+            rows.append({"key": f.group, "title": f.label, "state": "problem", "detail": f"Enter it again: {problem}."})
+    return rows
+
+
+def _posted(st, form):
+    """After a failed save: show what the admin typed, not the saved value (secrets are never echoed)."""
+    f = st["f"]
+    if st["env"] or f.secret:
+        return st
+    if f.kind == "multi":
+        st["selected"] = set(form.getlist(f.name))
+    elif f.kind == "bool":
+        st["value"] = "true" if form.get(f.name) == "true" else "false"
+    else:
+        st["value"] = form.get(f.name, "")
+    return st
+
+
 def _render(group, status=200, error=None, notes=None, edit=None, form=None, template=None):
     template = template or (request.args.get("template") if group == "siems" else None)
     with _conn() as conn:
         snap = _snapshot(conn)
+        overview = _overview(conn, snap) if group == "overview" else []
         leftovers = leftover_siems(conn, snap) if group == "siems" else []
         audit = conn.execute("""SELECT at, actor, name, action FROM settings_audit
                                 ORDER BY id DESC LIMIT 40""").fetchall() if group == "audit" else []
         packs = _packs_state(conn) if group == "playbooks" else None
     fields = [_field_state(f, snap) for f in A.FIELDS if f.group == group]
+    if form is not None and group not in ("siems", "overview", "audit"):
+        fields = [_posted(st, form) for st in fields]
     siems = _siems_state(snap) if group == "siems" else None
     ev = _edit_values(siems, edit, None if template else form) if edit else None
     templates = _templates(snap) if group == "siems" else []
@@ -782,8 +923,10 @@ def _render(group, status=200, error=None, notes=None, edit=None, form=None, tem
     logo = snap["rows"].get(A.BRAND_LOGO_KEY)
     return render_template(
         "settings.html", group=group, groups=A.GROUPS + [("audit", "Change log")], fields=fields,
+        menu=MENU, info=GROUP_INFO, overview=overview, channel_fields=CHANNEL_FIELDS, channel_info=CHANNEL_INFO,
+        fields_by_name={st["f"].name: st for st in fields},
         siems=siems, edit=edit, ev=ev, packs=packs, templates=templates, template=template, tv=tv,
-        leftovers=leftovers, can_templates=editions.has("templates"), pack_feature=editions.has("playbook_pack"),
+        leftovers=leftovers, can_templates=editions.has("templates"), can_integrations=editions.has("integrations"), pack_feature=editions.has("playbook_pack"),
         has_key=bool(snap["meta"]), error=error, notes=notes or [], audit=audit,
         workers=snap["status"], logo=bool(logo), needs_password=not g.user.get("sso"),
         msp=editions.has("multi_siem"), edition=editions.edition(), license=_main()._license_view()), status
@@ -804,13 +947,24 @@ def too_large(_exc):
 @bp.get("/admin/settings")
 def settings_home():
     _admin()
-    return redirect(url_for("settings.settings_page", group="licence"))
+    return redirect(url_for("settings.settings_page", group="overview"))
+
+
+@bp.post("/admin/settings/confirm-password")
+def confirm_password():
+    """The password pop-up: check the password before the form is sent, so a typo never loses the form."""
+    _admin()
+    if g.user.get("sso"):
+        return jsonify(ok=True)
+    pw = (request.get_json(silent=True) or {}).get("password") or request.form.get("password", "")
+    ok = auth.confirm_password(g.user["user_id"], g.user["username"], pw, _main()._client_ip())
+    return jsonify(ok=ok), (200 if ok else 403)
 
 
 @bp.get("/admin/settings/<group>")
 def settings_page(group):
     _admin()
-    if group not in GROUP_NAMES and group != "audit":
+    if group not in GROUP_NAMES and group not in ("audit", "overview"):
         abort(404)
     edit = request.args.get("edit")
     error = ("That was too large, so nothing was saved. A logo can be up to 200 KB, a playbook pack 2 MB; other "
@@ -826,8 +980,8 @@ def settings_save(group):
     try:
         notes = save_group(group, request.form, request.files)
     except SettingsError as exc:
-        return _render(group, 400, error=str(exc))
-    return _render(group, notes=["Saved. The worker applies changes within about 30 seconds."] + notes)
+        return _render(group, 400, error=str(exc), form=request.form)
+    return _render(group, notes=["Saved. Ardea uses the new settings within about 30 seconds."] + notes)
 
 
 @bp.post("/admin/settings/siems/save")
