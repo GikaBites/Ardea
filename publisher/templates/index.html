@@ -123,6 +123,6 @@
 {% endblock %}
 {% block scripts %}
 <!-- JSON data block, not executable: works with the strict CSP (no inline scripts) -->
-<script id="ardea-state" type="application/json">{{ {"filters": filters, "pageSize": page_size, "canFeedback": can_feedback, "canRetriage": can_retriage, "canCsv": can_csv, "multiSiem": siems | length > 1} | tojson }}</script>
+<script id="ardea-state" type="application/json">{{ {"filters": filters, "pageSize": page_size, "canFeedback": can_feedback, "canRetriage": can_retriage, "canAsk": can_ask, "canCsv": can_csv, "multiSiem": siems | length > 1} | tojson }}</script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% endblock %}

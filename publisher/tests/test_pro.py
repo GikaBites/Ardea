@@ -406,3 +406,121 @@ def test_incident_export_zip(monkeypatch):
     assert "## Timeline" in z.read("report.md").decode()
     cust = user("cust.viewer", "viewer", ["tother"])
     assert get(sso_client(cust, monkeypatch), f"/incidents/{inc}/export.zip", cust).status_code == 404
+
+
+# --------------------------------------------------------------------------- bulk on incidents, queue switch
+def test_bulk_actions_on_incidents(monkeypatch):
+    set_license("pro")
+    analyst = user("pro.analyst", "analyst")
+    c = sso_client(analyst, monkeypatch)
+    html = get(c, "/incidents?siem=tpro&status=all&range=30d", analyst).get_data(as_text=True)
+    assert 'action="/incidents/work"' in html and 'data-select-all="inc_id"' in html
+    inc = _tpro_incident(c, analyst)
+    r = form_post(c, "/incidents/work", analyst, {"inc_id": inc, "action": "resolve", "back": "/incidents?status=all"})
+    assert "error=" in r.headers["Location"]                                  # a note is required
+    r = form_post(c, "/incidents/work", analyst, {"inc_id": [inc, "inc-000000000000"], "action": "assign",
+                                                  "assignee": "pro.admin"})
+    assert r.status_code == 303 and "done=3" in r.headers["Location"]          # 2 true positives + 1 review
+    page = get(c, f"/incidents/{inc}", analyst).get_data(as_text=True)
+    assert page.count("<td>pro.admin</td>") == 3
+    r = form_post(c, "/incidents/work", analyst, {"action": "take"})
+    assert "error=" in r.headers["Location"]                                  # nothing ticked
+    viewer = user("pro.viewer", "viewer")
+    c2 = sso_client(viewer, monkeypatch)
+    assert form_post(c2, "/incidents/work", viewer, {"inc_id": inc, "action": "take"}).status_code == 403
+    assert 'action="/incidents/work"' not in get(c2, "/incidents?status=all", viewer).get_data(as_text=True)
+
+
+def test_queue_can_be_switched_off(monkeypatch):
+    import settings_admin
+    set_license("pro")
+    admin = user("pro.admin", "admin")
+    c = sso_client(admin, monkeypatch)
+    assert 'href="/queue"' in get(c, "/incidents", admin).get_data(as_text=True)
+    real = settings_admin.publisher_value
+    monkeypatch.setattr(settings_admin, "publisher_value",
+                        lambda n, d="": "false" if n == "QUEUE_ENABLED" else real(n, d))
+    html = get(c, "/incidents?siem=tpro&status=all&range=30d", admin).get_data(as_text=True)
+    assert 'href="/queue"' not in html and 'action="/incidents/work"' not in html and "overdue" not in html
+    assert "The queue is switched off" in get(c, "/queue", admin).get_data(as_text=True)
+    assert form_post(c, "/queue/work", admin, {"one": "tpro:p18"}).status_code == 403
+    inc = _tpro_incident(c, admin)
+    assert "Who is on it" not in get(c, f"/incidents/{inc}", admin).get_data(as_text=True)
+    assert "Use the queue" in get(c, "/admin/settings/deadlines", admin).get_data(as_text=True)
+
+
+# --------------------------------------------------------------------------- ask about this alert
+def json_post(c, path, name, body):
+    html = get(c, "/", name).get_data(as_text=True)
+    import re
+    csrf = re.search(r'name="csrf-token" content="([^"]+)"', html).group(1)
+    return c.post(path, base_url=BASE, json=body,
+                  headers={app_module.SSO_HEADER: name, "Origin": BASE, "X-CSRF-Token": csrf})
+
+
+def test_ask_about_an_alert(monkeypatch):
+    set_license("pro")
+    analyst = user("pro.analyst", "analyst")
+    c = sso_client(analyst, monkeypatch)
+    assert '"canAsk": true' in get(c, "/", analyst).get_data(as_text=True)
+    assert json_post(c, "/api/alerts/tpro:p18/ask", analyst, {"question": "hi"}).status_code == 400
+    r = json_post(c, "/api/alerts/tpro:p18/ask", analyst, {"question": "Did helpdesk1 log on elsewhere?"})
+    assert r.status_code == 200 and r.get_json()["id"]
+    with auth.engine.begin() as conn:
+        conn.execute(text("UPDATE alert_questions SET status = 'done', answer = 'Yes, on srv-db (Q1).', "
+                          "cited = '[\"Q1\"]', steps = '[{\"evidence\": [{\"id\": \"Q1\", \"tool\": \"get_auth_events\"}]}]' "
+                          "WHERE id = :i"), {"i": r.get_json()["id"]})
+    [q] = get(c, "/api/alerts/tpro:p18/questions", analyst).get_json()["questions"]
+    assert q["answer"] == "Yes, on srv-db (Q1)." and q["new_evidence"] == [{"id": "Q1", "tool": "get_auth_events"}]
+    viewer = user("pro.viewer", "viewer")
+    c2 = sso_client(viewer, monkeypatch)
+    assert json_post(c2, "/api/alerts/tpro:p18/ask", viewer, {"question": "Why was it closed?"}).status_code == 403
+    assert len(get(c2, "/api/alerts/tpro:p18/questions", viewer).get_json()["questions"]) == 1
+    cust = user("cust.analyst", "analyst", ["tother"])
+    c3 = sso_client(cust, monkeypatch)
+    assert json_post(c3, "/api/alerts/tpro:p18/ask", cust, {"question": "What happened here?"}).status_code == 404
+    for _ in range(9):
+        json_post(c, "/api/alerts/tpro:p18/ask", analyst, {"question": "Another question please"})
+    assert json_post(c, "/api/alerts/tpro:p18/ask", analyst, {"question": "One too many?"}).status_code == 429
+    set_license("community")
+    monkeypatch.setattr(editions, "has", lambda f: f == "sso")
+    assert json_post(c, "/api/alerts/tpro:p18/ask", analyst, {"question": "Still allowed?"}).status_code == 403
+    assert '"canAsk": false' in get(c, "/", analyst).get_data(as_text=True)
+
+
+def test_suppressions_from_feedback(monkeypatch):
+    set_license("pro")
+    analyst = user("pro.analyst", "analyst")
+    c = sso_client(analyst, monkeypatch)
+    with auth.engine.begin() as conn:
+        for n in (0, 1, 2, 6, 7, 8, 12, 13, 14):            # whoami, LSASS (protected), Service Install (has a TP)
+            conn.execute(text("INSERT INTO feedback (alert_id, analyst, agrees) VALUES (:a, 'pro.analyst', TRUE)"),
+                         {"a": f"tpro:p{n}"})
+    html = get(c, "/insights/suppressions?siem=tpro", analyst).get_data(as_text=True)
+    assert "3 of 6 alerts called Benign Positive" in html
+    assert "LSASS Memory Dump" not in html and "Service Install" not in html
+    base = {"siem": "tpro", "rule_name": "Whoami Process Activity",
+            "process_executable": r"C:\Windows\System32\whoami.exe",
+            "parent_executable": r"C:\Windows\System32\cmd.exe", "user_name": "helpdesk1", "days": "30"}
+    r = form_post(c, "/suppressions", analyst, {**base, "reason": "no"})
+    assert "error=" in r.headers["Location"]
+    r = form_post(c, "/suppressions", analyst, {**base, "siem": "tother", "reason": "IT helpdesk inventory"})
+    assert r.status_code == 303                             # unrestricted analyst: allowed in any SIEM
+    r = form_post(c, "/suppressions", analyst, {**base, "reason": "IT helpdesk inventory script"})
+    assert "done=created" in r.headers["Location"]
+    html = get(c, "/insights/suppressions?siem=tpro", analyst).get_data(as_text=True)
+    assert "3 of 6 alerts" not in html                      # covered now: no longer suggested
+    assert "IT helpdesk inventory script" in html and "Revoke" in html
+    with auth.engine.begin() as conn:
+        sid = conn.execute(text("SELECT id FROM suppressions WHERE siem = 'tpro'")).scalar()
+    cust = user("cust.analyst", "analyst", ["tother"])
+    c3 = sso_client(cust, monkeypatch)
+    assert form_post(c3, f"/suppressions/{sid}/revoke", cust, {}).status_code == 404
+    assert "error=" in form_post(c3, "/suppressions", cust, {**base, "reason": "not my customer"}).headers["Location"]
+    viewer = user("pro.viewer", "viewer")
+    assert get(sso_client(viewer, monkeypatch), "/insights/suppressions", viewer).status_code == 403
+    assert form_post(c, f"/suppressions/{sid}/revoke", analyst, {}).status_code == 303
+    assert "Revoked" in get(c, "/insights/suppressions?siem=tpro", analyst).get_data(as_text=True)
+    with auth.engine.begin() as conn:
+        conn.execute(text("DELETE FROM feedback WHERE analyst = 'pro.analyst' AND comment IS NULL"))
+        conn.execute(text("DELETE FROM suppressions"))

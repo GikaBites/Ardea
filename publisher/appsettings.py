@@ -163,6 +163,10 @@ FIELDS = [
     Field("NOTIFY_PROXY", "notifications", "Proxy for notifications", "url",
           "Only if the worker reaches Slack, Teams or Jira through a proxy."),
     # Response deadlines (Pro)
+    Field("QUEUE_ENABLED", "deadlines", "Use the queue", "bool",
+          "Off hides the Queue page, assignments and deadlines, and stops overdue messages. Nothing is deleted: "
+          "switch it on again and everything is back.", "true", feature="assignments",
+          services=("worker", "publisher")),
     Field("SLA_CRITICAL_MINUTES", "deadlines", "Critical: respond within (minutes)", "int",
           "From the alert's time. Applies to alerts that need a person (true positives and reviews).", "60",
           min=5, max=43200, feature="assignments", services=("worker", "publisher")),
@@ -212,6 +216,7 @@ FIELDS = [
 BY_NAME = {f.name: f for f in FIELDS}
 
 SIEMS_KEY = "SIEMS"                       # the SIEM list (no secrets), JSON
+SIEM_TEMPLATES_KEY = "SIEM_TEMPLATES"     # MSP: settings templates for customer SIEMs (no secrets), JSON
 BRAND_LOGO_KEY = "BRAND_LOGO"             # data: URI of the uploaded logo (publisher only)
 SIEM_SECRETS = ("fetcher_api_key", "worker_api_key")
 SIEM_NOTIFY_SECRETS = ("slack_webhook_url", "teams_webhook_url", "webhook_url", "webhook_secret")
@@ -276,6 +281,21 @@ CREATE TABLE IF NOT EXISTS alert_work (           -- who handles an alert that n
 CREATE TABLE IF NOT EXISTS alert_work_log (
     id BIGSERIAL PRIMARY KEY, alert_id TEXT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     actor TEXT, action TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alert_questions (      -- "Ask about this alert" (Pro)
+    id BIGSERIAL PRIMARY KEY, alert_id TEXT NOT NULL, asked_by TEXT, question TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',      -- queued | running | done | failed
+    answer TEXT, cited JSONB, steps JSONB, note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), started_at TIMESTAMPTZ, finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS alert_questions_alert_idx ON alert_questions (alert_id, id);
+CREATE TABLE IF NOT EXISTS suppressions (         -- patterns closed without investigation (Pro)
+    id BIGSERIAL PRIMARY KEY, siem TEXT, rule_name TEXT NOT NULL,
+    process_executable TEXT NOT NULL, parent_executable TEXT, user_name TEXT,
+    host_name TEXT,                             -- NULL = any host
+    verdict TEXT NOT NULL DEFAULT 'Benign Positive', reason TEXT NOT NULL,
+    created_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL,
+    revoked_by TEXT, revoked_at TIMESTAMPTZ, hits INT NOT NULL DEFAULT 0, last_hit_at TIMESTAMPTZ
 );
 CREATE TABLE IF NOT EXISTS settings_tests (
     id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL, requested_by TEXT,

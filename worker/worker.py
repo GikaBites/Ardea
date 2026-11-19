@@ -15,6 +15,7 @@ import time
 from ollama import Client
 
 import appsettings
+import ask
 import config
 import db
 import digest
@@ -27,6 +28,7 @@ import playbooks
 import reports
 import settings_tests
 import sla
+import suppress
 import siems as siem_config
 from agent import Investigation, LLMUnavailable
 from alert_context import build_context
@@ -92,6 +94,17 @@ def _process(conn, llm, row: dict):
         return
     ctx = build_context(raw, occurrences=row["count"] or 1)
     ctx["siem"] = row["siem"]
+    s = suppress.find(conn, row)
+    if s is not None:
+        why_not = suppress.blocked(ctx)
+        if why_not is None:
+            final = enrich_result(suppress.verdict(s), ctx, row)
+            db.store_result(conn, alert_id, final, {"model": None, "prompt_version": config.PROMPT_VERSION,
+                                                    "steps": 0, "tool_calls": 0, "duration_ms": 0})
+            suppress.record_hit(conn, s)
+            log.info("alert %s -> %s by suppression #%s", alert_id, final["verdict"], s["id"])
+            return
+        log.info("alert %s matches suppression #%s but is investigated: %s", alert_id, s["id"], why_not)
     pb = playbooks.resolve(ctx)
     try:
         history = db.similar_feedback(conn, row, config.FEEDBACK_EXAMPLES)
@@ -192,6 +205,7 @@ def run_worker():
                 health.run_due(conn)             # silent-source alarm (Pro), every 15 minutes
                 digest.run_due(conn)             # daily handover digest (Pro), at DIGEST_TIME
                 sla.run_due(conn)                # overdue alerts (Pro: assignments)
+                ask.requeue_stuck(conn)          # questions left 'running' by a stopped worker
                 last_maintenance = time.monotonic()
             HEARTBEAT.touch()
             licensing.sync(conn)
@@ -203,6 +217,8 @@ def run_worker():
             if not llm_ready(probe):
                 time.sleep(config.LLM_UNAVAILABLE_BACKOFF)
                 continue
+            if licensing.has("ask") and ask.run_pending(conn, llm):
+                continue                         # analysts' follow-up questions go before the next alert
             row = db.claim_next_alert(conn)
             if row is None:
                 time.sleep(config.POLL_SECONDS)

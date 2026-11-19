@@ -223,3 +223,11 @@ def test_sla_minutes_follow_the_settings(monkeypatch):
     monkeypatch.setattr(appsettings, "OVERLAY", {"SLA_HIGH_MINUTES": "30"})
     monkeypatch.delenv("SLA_HIGH_MINUTES", raising=False)
     assert sla.minutes("High") == 30 and sla.minutes("Critical") == 60 and sla.minutes("Informational") == 4320
+
+
+def test_no_overdue_messages_when_the_queue_is_off(conn, monkeypatch):
+    import sla
+    conn.execute("DELETE FROM alert_work")
+    add(conn, 1, "True Positive", "High", minutes_ago=5 * 60)
+    monkeypatch.setitem(appsettings.OVERLAY, "QUEUE_ENABLED", "false")
+    assert sla.run_due(conn, send=lambda *a: None) == []

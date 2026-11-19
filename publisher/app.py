@@ -260,7 +260,16 @@ def source_alarms(user):
 def inject_brand():
     brand = current_brand()
     return {"brand": brand, "product_name": brand["name"] if brand else "Ardea", "demo_mode": demo.ENABLED,
-            "source_alarms": source_alarms(getattr(g, "user", None))}
+            "source_alarms": source_alarms(getattr(g, "user", None)),
+            "queue_on": _queue_on()}
+
+
+def _queue_on() -> bool:
+    """The Queue nav link: Community also sees it (the page explains Pro), unless an admin switched it off."""
+    import work
+    if not getattr(g, "user", None):
+        return False
+    return not editions.has("assignments") or work.enabled()
 
 
 @app.get("/branding/logo")
@@ -873,6 +882,7 @@ def index():
         page_size=PAGE_SIZE,
         can_feedback=can_give_feedback(),
         can_retriage=can_give_feedback() and editions.has("retriage"),
+        can_ask=can_give_feedback() and editions.has("ask"),
         can_csv=editions.has("csv_export"),
     )
 

@@ -51,13 +51,34 @@
 		<p class="ins-locked__cta">This installation runs the {{ edition | capitalize }} edition. {% if g.user.role == "admin" %}Add a {{ needs | capitalize }} licence key under <a href="/admin/settings/licence">Settings → Licence</a> to switch it on.{% else %}Ask your administrator about upgrading.{% endif %}
 			<a href="https://ardeasecurity.com/#pricing" target="_blank" rel="noopener">See the editions and prices</a></p>
 	</section>
-	{% elif not incidents %}
+	{% else %}
+	{% if error %}<div class="alert alert-danger py-2" role="alert">{{ error }}</div>{% endif %}
+	{% if done %}<div class="alert alert-success py-2">Updated {{ done }} alert{{ 's' if done != '1' }}.</div>{% endif %}
+	{% if not incidents %}
 	<section class="ins-block">
 		<p class="mb-0 ins-muted">{% if status == "attention" %}No incident in this period has an alert that needs a person.{% else %}No incidents with two or more related alerts in this period.{% endif %} Single alerts are on the <a href="/">Alerts</a> page.</p>
 	</section>
 	{% else %}
+	{% if bulk %}<form method="post" action="/incidents/work" id="inc-bulk">
+		<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+		<input type="hidden" name="back" value="{{ request.full_path }}" />
+		<div class="q-bulk mb-2">
+			<label class="form-check mb-0"><input class="form-check-input" type="checkbox" data-select-all="inc_id" /> <span class="ins-muted small">All</span></label>
+			<span class="ins-muted small">For the alerts that need a person in the ticked incidents:</span>
+			<select class="form-select form-select-sm" name="action" aria-label="Action">
+				<option value="take">Assign to me</option><option value="assign">Assign to…</option>
+				<option value="start">Mark in progress</option><option value="resolve">Resolve, with the note</option>
+				<option value="reopen">Reopen</option><option value="unassign">Unassign</option>
+			</select>
+			<select class="form-select form-select-sm" name="assignee" aria-label="Assignee">{% for u in users %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select>
+			<input class="form-control form-control-sm" name="note" maxlength="500" placeholder="Note (needed to resolve)" />
+			<button class="btn btn-primary btn-sm">Apply</button>
+		</div>
+	</form>{% endif %}
 	<section class="inc-list">
 		{% for inc in incidents %}
+		<div class="inc-row">
+		{% if bulk %}<input class="form-check-input inc-row__check" type="checkbox" name="inc_id" value="{{ inc.id }}" form="inc-bulk" aria-label="Select {{ inc.title }}" />{% endif %}
 		<a class="inc-card inc-card--{{ inc.status }}" href="/incidents/{{ inc.id }}">
 			<div class="inc-card__badges">
 				{% if inc.status == "attention" %}<span class="ar-verdict ar-verdict--tp">Needs a person</span>{% else %}<span class="ar-verdict ar-verdict--benign">Closed by {{ product_name }}</span>{% endif %}
@@ -78,9 +99,11 @@
 				{% for v in ("True Positive", "Needs Human Review", "Benign Positive", "False Positive") %}{% if inc.verdicts.get(v) %}<span class="inc-count inc-count--{{ vkey[v] }}" title="{{ v }}">{{ inc.verdicts[v] }}</span>{% endif %}{% endfor %}
 			</div>
 		</a>
+		</div>
 		{% endfor %}
 	</section>
 	<p class="ins-muted small mt-3">Alerts are grouped when they share a host or a user account within an hour, in the same SIEM. Single alerts stay on the Alerts page.</p>
+	{% endif %}
 	{% endif %}
 </main>
 <script src="{{ url_for('static', filename='js/insights.js') }}" defer></script>

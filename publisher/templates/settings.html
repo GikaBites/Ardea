@@ -157,11 +157,15 @@
 				<a class="btn btn-outline-light" href="/admin/settings/siems">Cancel</a>
 			</div>
 		</form>
+		{% if ev.from_template %}<p class="set-help">Started from the default template "{{ ev.from_template }}".</p>{% endif %}
 		{% if s %}
 		<form method="post" action="/admin/settings/siems/{{ s.id }}/delete" class="set-delete">
 			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
 			<h3 class="set-sub">Remove this SIEM</h3>
-			<p class="set-help">Ardea stops collecting from it. Its alerts and verdicts stay.</p>
+			<p class="set-help">Ardea stops collecting from it. Its alerts and verdicts stay, unless you tick the box below.</p>
+			<label class="form-check"><input class="form-check-input" type="checkbox" name="purge" value="1" /> Also delete everything stored for it: alerts, verdicts, investigation steps, feedback, queue history, questions, suppressions and its health status. This cannot be undone.</label>
+			<div class="set-field mt-2 mb-2"><label class="set-label" for="s-confirm">To delete its data, type its ID: <code>{{ s.id }}</code></label>
+				<input class="form-control form-control-sm" id="s-confirm" name="confirm_id" autocomplete="off" spellcheck="false" /></div>
 			{{ password_box() }}
 			<button type="submit" class="btn btn-outline-danger btn-sm">Remove {{ s.name }}</button>
 		</form>
@@ -194,7 +198,82 @@
 		<a class="btn btn-primary btn-sm" href="/admin/settings/siems?edit=new">Add a SIEM</a>
 		<p class="set-help mt-2">Create the two read-only API keys in Kibana with the roles in <code>elastic/roles.json</code>. Tests use the saved values and run in the worker, so they can take a minute while it investigates an alert.</p>
 	</div></div>
+
+	{% if template %}
+	<div class="card shadow-sm mb-3" id="template"><div class="card-body">
+		<h2 class="h6 mb-3">{{ "Change template " ~ tv.old_name if tv.old_name else "New template" }}</h2>
+		<form method="post" action="/admin/settings/siems/templates/save" class="set-form" autocomplete="off">
+			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+			{% if tv.old_name %}<input type="hidden" name="old_name" value="{{ tv.old_name }}" />{% endif %}
+			<div class="set-grid">
+				<div class="set-field"><label class="set-label" for="t-name">Name</label>
+					<input class="form-control" id="t-name" name="name" value="{{ tv.get('name', '') }}" maxlength="60" required placeholder="Windows customers" /></div>
+				<div class="set-field"><label class="form-check mt-4"><input class="form-check-input" type="checkbox" name="default" value="1" {{ 'checked' if tv.default }} /> Start every new SIEM from this template</label></div>
+				<div class="set-field"><label class="set-label" for="t-alerts">Alerts index</label>
+					<input class="form-control" id="t-alerts" name="alerts_index" value="{{ tv.get('alerts_index', '') }}" placeholder="Leave empty to keep each SIEM's own" spellcheck="false" /></div>
+				<div class="set-field"><label class="set-label" for="t-events">Event indices</label>
+					<input class="form-control" id="t-events" name="events_indices" value="{{ tv.get('events_indices', '') }}" placeholder="logs-endpoint.*, logs-windows.*" spellcheck="false" /></div>
+				<div class="set-field set-wide"><label class="set-label" for="t-context">Facts true for every customer it is applied to</label>
+					<textarea class="form-control set-lines" id="t-context" name="context" rows="3" placeholder="Our RMM agent C:\Program Files\RMM\agent.exe runs scripts as SYSTEM">{{ tv.get('context', '') }}</textarea>
+					<label class="form-check set-clear"><input class="form-check-input" type="radio" name="context_mode" value="add" {{ 'checked' if tv.context_mode != 'replace' }} /> Add to each SIEM's own facts</label>
+					<label class="form-check set-clear"><input class="form-check-input" type="radio" name="context_mode" value="replace" {{ 'checked' if tv.context_mode == 'replace' }} /> Replace each SIEM's facts</label></div>
+				<div class="set-field"><label class="set-label" for="t-report">Monthly report to</label>
+					<input class="form-control" id="t-report" name="report_to" value="{{ tv.get('report_to', '') }}" placeholder="Leave empty to keep each SIEM's own" /></div>
+				<div class="set-field"><label class="set-label" for="t-smtp">Alerts by e-mail to</label>
+					<input class="form-control" id="t-smtp" name="notify_smtp_to" value="{{ tv.get('notify_smtp_to', '') }}" placeholder="soc@your-company.example" /></div>
+			</div>
+			<p class="set-help">Empty fields leave each SIEM's own value alone. API keys and webhooks are never part of a template.</p>
+			<div class="set-actions">
+				<button type="submit" class="btn btn-primary">Save template</button>
+				<a class="btn btn-outline-light" href="/admin/settings/siems">Cancel</a>
+			</div>
+		</form>
+	</div></div>
 	{% endif %}
+
+	<div class="card shadow-sm mb-3"><div class="card-body">
+		<h2 class="h6 mb-2">Settings templates {% if not can_templates %}<span class="set-badge">MSP</span>{% endif %}</h2>
+		{% if not can_templates %}
+		<p class="set-help mb-0">With Ardea MSP, save the event indices, facts and e-mail addresses that most of your customers share as a template, apply it to many SIEMs in one go, and start every new customer from it.</p>
+		{% else %}
+		<p class="set-help">Apply shared settings to many customer SIEMs at once. Applying copies the values; changing the template later changes nothing until you apply it again.</p>
+		{% for t in templates %}
+		<div class="set-template">
+			<div><strong>{{ t.name }}</strong>{% if t.default %} <span class="set-badge">new SIEMs</span>{% endif %}
+				<span class="set-help d-block">{% set parts = [] %}{% if t.alerts_index %}{% set _ = parts.append("alerts index") %}{% endif %}{% if t.events_indices %}{% set _ = parts.append("event indices") %}{% endif %}{% if t.context %}{% set _ = parts.append(t.context | length ~ " fact" ~ ("s" if t.context | length != 1 else "") ~ (" (replace)" if t.context_mode == "replace" else " (add)")) %}{% endif %}{% if t.report_to %}{% set _ = parts.append("report recipients") %}{% endif %}{% if t.notify_smtp_to %}{% set _ = parts.append("alert e-mail") %}{% endif %}{{ parts | join(", ") or "empty" }}</span></div>
+			{% if siems["items"] and not siems.file %}
+			<form method="post" action="/admin/settings/siems/templates/apply" class="set-apply">
+				<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" /><input type="hidden" name="name" value="{{ t.name }}" />
+				{% for s in siems["items"] %}<label class="form-check form-check-inline small"><input class="form-check-input" type="checkbox" name="siem" value="{{ s.id }}" /> {{ s.name }}</label>{% endfor %}
+				<button class="btn btn-primary btn-sm">Apply</button>
+			</form>
+			{% endif %}
+			<div class="set-row-actions">
+				<a class="btn btn-outline-light btn-sm" href="/admin/settings/siems?template={{ t.name | urlencode }}#template">Change</a>
+				<form method="post" action="/admin/settings/siems/templates/delete" class="d-inline"><input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" /><input type="hidden" name="name" value="{{ t.name }}" /><button class="btn btn-outline-light btn-sm">Remove</button></form>
+			</div>
+		</div>
+		{% endfor %}
+		<a class="btn btn-outline-light btn-sm" href="/admin/settings/siems?template=new#template">New template</a>
+		{% endif %}
+	</div></div>
+	{% endif %}
+	{% endif %}
+
+	{% if leftovers and not edit %}
+	<div class="card shadow-sm mb-3"><div class="card-body">
+		<h2 class="h6 mb-2">Data from SIEMs that are no longer configured</h2>
+		<p class="set-help">Their alerts and verdicts are still stored. Delete everything stored for one of them: alerts, verdicts, investigation steps, feedback, queue history, questions, suppressions and its health status. This cannot be undone.</p>
+		{% for l in leftovers %}
+		<form method="post" action="/admin/settings/siems/{{ l.siem }}/purge" class="set-purge">
+			<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+			<div><strong>{{ l.name or l.siem }}</strong> <code>{{ l.siem }}</code> <span class="set-help">{{ l.alerts }} alert{{ 's' if l.alerts != 1 }}{% if l.last %}, last {{ l.last | localtime("%d/%m/%Y") }}{% endif %}</span></div>
+			<input class="form-control form-control-sm" name="confirm_id" placeholder="Type {{ l.siem }} to confirm" autocomplete="off" spellcheck="false" aria-label="Type the SIEM ID to confirm" />
+			{{ password_box() }}
+			<button class="btn btn-outline-danger btn-sm">Delete its data</button>
+		</form>
+		{% endfor %}
+	</div></div>
 	{% endif %}
 
 	{% else %}

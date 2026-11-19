@@ -25,6 +25,13 @@ class WorkError(Exception):
     pass
 
 
+def enabled() -> bool:
+    """Pro, and not switched off under Settings -> Response deadlines (QUEUE_ENABLED)."""
+    import editions
+    return editions.has("assignments") and \
+        settings_admin.publisher_value("QUEUE_ENABLED", "true").strip().lower() == "true"
+
+
 def sla_minutes(severity: str) -> int:
     name, default = SLA_DEFAULTS.get(severity, LOW_DEFAULT)
     try:

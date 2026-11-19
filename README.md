@@ -54,14 +54,16 @@ triaged.
 | [NIS2 report drafts and incident export](#nis2-report-drafts-and-incident-export): 24-hour, 72-hour and final report drafted from the evidence; ZIP or PDF of an incident | | ✓ | ✓ |
 | [Silent-source alarm and handover digest](#monitoring-and-handover-digest): warning when a SIEM stops sending events; a daily summary of what needs a person | | ✓ | ✓ |
 | [Reports and insights](#reports-and-insights): management report (print / PDF), weekly trends, scheduled report e-mails | | ✓ | ✓ |
+| [Ask about this alert](#ask-about-this-alert): follow-up questions answered from the evidence, with new read-only queries and citations | | ✓ | ✓ |
 | [Rule-tuning advisor](#rule-tuning-advisor): ready-to-paste Elastic exceptions for patterns that are always harmless | | ✓ | ✓ |
+| [Suppressions](#suppressions): patterns your analysts keep closing are closed without an investigation, with a reason and an expiry | | ✓ | ✓ |
 | [Integrations](#integrations): Slack, Microsoft Teams, webhook, Jira, TheHive, plus e-mail and ntfy | | ✓ | ✓ |
 | [Playbook pack](#playbook-pack): ready-made playbooks for 30 noisy Elastic prebuilt rules, updated monthly | | ✓ | ✓ |
 | [Single sign-on](#single-sign-on) through your identity provider | | ✓ | ✓ |
 | Re-triage button, CSV export, eval-case export | | ✓ | ✓ |
 | [Several Elastic clusters](#several-siems) with per-user SIEM access | | | ✓ |
 | [Watched hosts](#monitoring-and-handover-digest): warning when a domain controller or server stops reporting | | | ✓ |
-| [Per-customer setup](#per-customer-setup-msp): own alert routing, monthly reports, facts and playbooks per customer | | | ✓ |
+| [Per-customer setup](#per-customer-setup-msp): own alert routing, monthly reports, facts and playbooks per customer; settings templates applied to many customers at once | | | ✓ |
 | Customer portal (read-only logins per customer), usage export for billing | | | ✓ |
 | Run Ardea for your customers, [your own branding](#own-branding) | | | ✓ |
 
@@ -221,6 +223,14 @@ first. `siems/siems.json` and certificates in `siems/` are git-ignored: they con
 Same host names in two SIEMs are treated as different machines: duplicates are only merged, and "same host" analyst
 feedback is only reused, within one SIEM.
 
+**Removing a SIEM.** *Settings → SIEMs → Change → Remove this SIEM* stops collecting from it; its alerts and
+verdicts stay. Tick *Also delete everything stored for it* and type its ID to delete its alerts, verdicts,
+investigation steps, feedback, queue history, questions, suppressions and health status as well. A SIEM that is
+no longer configured (removed earlier, or taken out of `siems/siems.json`) and still has data is listed under
+*Data from SIEMs that are no longer configured*, with a **Delete its data** button. Users limited to that SIEM keep
+their other SIEMs. Deleting cannot be undone and is recorded in the change log. Alerts stored before multi-SIEM
+support (no SIEM ID) are never deleted this way.
+
 ### 4. Set up HTTPS for the web UI
 
 The UI is served over HTTPS by a Caddy container; plain HTTP on port 80 only redirects to HTTPS. In `.env`, list
@@ -341,6 +351,16 @@ with its arguments and result, and every model turn.
 
 Analysts and admins can use the 👍 / 👎 buttons, and pick the correct verdict on 👎. Feedback is shown to the model when similar alerts
 come in later. If an analyst marked a similar alert True Positive, the new one is never closed automatically.
+
+### Ask about this alert
+
+*Pro.* Analysts and admins can ask a follow-up question in the alert's **Ask about this alert** box, such as
+"Did this account log on anywhere else that day?" or "Why was this not closed?". The worker answers between
+alerts, from the original investigation's evidence (E1, E2, …) and at most 4 new read-only queries in the same
+SIEM, under the same scope rules as the triage (new evidence: Q1, Q2, …). Every statement cites its evidence;
+citations that do not exist are removed and the answer says so. An answer never changes the verdict, never
+closes anything and never searches the web; questions and answers are kept with the alert, apart from its
+investigation trail. Viewers can read the answers. At most 10 questions per user per 10 minutes.
 
 ### Users and roles
 
@@ -468,8 +488,13 @@ Every alert that needs a person (True Positive, Needs Human Review) gets a deadl
 counted from the alert's time: by default 1 hour for Critical, 4 hours for High, 24 hours for Medium and 3
 days for the rest. The **Queue** page lists those alerts, most urgent first, with *Mine*, *Unassigned* and
 *Everything open* views. Analysts and admins take an alert, assign it to a colleague who can see that SIEM,
-mark it in progress and resolve it with a note; tick several alerts to do it at once, or do it for a whole
-incident from its page. An alert also counts as done once an analyst gives feedback on its verdict.
+mark it in progress and resolve it with a note. For bulk work, tick several alerts (or **All**) in the queue,
+or tick incidents on the **Incidents** page to act on every alert that needs a person in them; an incident's
+own page does the same for that incident. An alert also counts as done once an analyst gives feedback on its
+verdict.
+
+Teams that track work elsewhere can switch the queue off (**Use the queue** on the same Settings tab): the
+Queue page, assignments, deadlines and overdue messages disappear, and nothing is deleted.
 
 When an alert passes its deadline without being resolved, one message goes to the notification channels
 (switch it off on the same Settings tab). Who did what is kept with each alert, and the incident page shows
@@ -544,6 +569,21 @@ are never suggested. Check each suggestion before adding it: an exception stops 
 that pattern.
 
 Only alerts collected by this version have the process details the advisor needs.
+
+### Suppressions
+
+*Insights → Suppressions*, Pro, for analysts and admins. Rule tuning needs a change in Kibana; a suppression
+stays inside Ardea. Suggestions come from your analysts' feedback, not from the model: a pattern (same rule,
+program, parent program and account in one SIEM) that analysts called Benign or False Positive at least 3 times in
+30 days, never a True Positive, with no unreviewed True Positive verdict and no high-impact tactic. Patterns the
+model keeps sending for review come first, because they cost a person the most time.
+
+Create one with a reason (shown on every alert it closes), the verdict, optionally only for the one host, and an
+expiry (90 days by default, at most a year). A matching alert is closed at once without the model, with the
+summary *Closed by suppression #n … (created by …, expires …)*, and sends no notification. Alerts with
+credential access, lateral movement, impact or exfiltration tactics, or with text that tries to instruct the
+model, are always investigated. The page shows how many alerts each suppression closed and when it last did;
+**Revoke** ends one immediately. Creating and revoking are recorded in the audit log.
 
 ---
 
@@ -638,6 +678,12 @@ Ardea signs you straight back in while your identity provider session lasts; sig
   their own alerts and their own Insights report.
 - **Usage export**: Users page → `/admin/usage.csv?month=2026-11` gives alerts per customer per month, for
   your invoicing.
+- **Settings templates**: *Settings → SIEMs → Settings templates*. Save the alerts index, event indices,
+  facts, report recipients and alert e-mail that many customers share, then tick the SIEMs and **Apply**. Facts
+  are added to each customer's own (or replace them, if the template says so); every other value set in the
+  template replaces the customer's; empty fields are left alone. Mark one template to start every new SIEM from
+  it. API keys and webhooks are never part of a template. Applying copies the values, so changing a template
+  later changes nothing until you apply it again. (SIEMs from `siems/siems.json` are edited in that file.)
 
 ---
 

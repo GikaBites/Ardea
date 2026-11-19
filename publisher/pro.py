@@ -15,11 +15,12 @@ import editions
 import incidents
 import insights
 import nis2
+import suppressions
 import work
 from db import get_connection
 
 bp = Blueprint("pro", __name__)
-SECTIONS = ("report", "trends", "tuning")
+SECTIONS = ("report", "trends", "tuning", "suppressions")
 
 
 def _main():
@@ -50,8 +51,8 @@ def insights_home():
 def insights_page(section):
     if section not in SECTIONS:
         abort(404)
-    feature = {"report": "reports", "trends": "reports", "tuning": "tuning"}[section]
-    if section == "tuning" and g.user["role"] not in auth.FEEDBACK_ROLES:
+    feature = {"report": "reports", "trends": "reports", "tuning": "tuning", "suppressions": "suppressions"}[section]
+    if section in ("tuning", "suppressions") and g.user["role"] not in auth.FEEDBACK_ROLES:
         abort(403)                                     # tuning proposes rule changes: analysts and admins
     if not editions.has(feature):
         return _locked(section, feature)
@@ -63,6 +64,10 @@ def insights_page(section):
             data = insights.report(period, scope, first)
         elif section == "trends":
             data = {"weeks": insights.trends(scope, first)}
+        elif section == "suppressions":
+            data = {"suggestions": suppressions.suggestions(scope, first), "list": suppressions.listing(scope),
+                    "days": suppressions.DEFAULT_DAYS, "max_days": suppressions.MAX_DAYS,
+                    "error": request.args.get("error", "")[:200], "done": request.args.get("done", "")}
         else:
             data = {"patterns": insights.tuning(scope, first)}
     if section == "trends":
@@ -74,6 +79,29 @@ def insights_page(section):
                            siem_names={s["id"]: s["name"] for s in visible},
                            generated=datetime.now(timezone.utc), empty_scope=scope == [],
                            can_csv=editions.has("csv_export"))
+
+
+@bp.post("/suppressions")
+def suppression_create():
+    if not editions.has("suppressions") or g.user["role"] not in auth.FEEDBACK_ROLES:
+        abort(403)
+    try:
+        sid = suppressions.create(g.user["username"], request.form, lambda s: auth.can_see_siem(g.user, s))
+    except suppressions.SuppressionError as exc:
+        return redirect(f"/insights/suppressions?error={_q(str(exc))}", code=303)
+    auth.audit(g.user["username"], "suppression_created", target=str(sid),
+               detail=f"{request.form.get('rule_name', '')[:200]} / {request.form.get('process_executable', '')[:200]}")
+    return redirect(f"/insights/suppressions?done=created#s{sid}", code=303)
+
+
+@bp.post("/suppressions/<int:sid>/revoke")
+def suppression_revoke(sid):
+    if not editions.has("suppressions") or g.user["role"] not in auth.FEEDBACK_ROLES:
+        abort(403)
+    if not suppressions.revoke(sid, g.user["username"], lambda s: auth.can_see_siem(g.user, s)):
+        abort(404)
+    auth.audit(g.user["username"], "suppression_revoked", target=str(sid))
+    return redirect("/insights/suppressions?done=revoked", code=303)
 
 
 # --------------------------------------------------------------------------- incidents
@@ -93,6 +121,9 @@ def incidents_page():
     visible = [s for s in main.load_siems() if auth.can_see_siem(g.user, s["id"])]
     return render_template("incidents.html", locked=False, incidents=shown, range_key=range_key,
                            status=status, siem=siem, siems=visible, inc_work=_incident_work(shown),
+                           bulk=work.enabled() and g.user["role"] in auth.FEEDBACK_ROLES,
+                           users=work.assignable_users() if work.enabled() else [],
+                           error=request.args.get("error", "")[:200], done=request.args.get("done", ""),
                            open_count=sum(1 for i in incidents.select(mine, range_key=range_key, siem=siem)))
 
 
@@ -107,9 +138,9 @@ def incident_page(inc_id):
         abort(404)                                     # not 403: don't confirm it exists
     items = _incident_work([inc]).get(inc["id"], {}).get("items", [])
     return render_template("incident.html", inc=inc, multi_siem=len(_main().load_siems()) > 1,
-                           work_on=editions.has("assignments"), items=items,
+                           work_on=work.enabled(), items=items,
                            can_work=g.user["role"] in auth.FEEDBACK_ROLES,
-                           users=work.assignable_users(inc["siem"]) if editions.has("assignments") else [],
+                           users=work.assignable_users(inc["siem"]) if work.enabled() else [],
                            log=work.history([i["alert"]["alert_id"] for i in items]) if items else [],
                            labels=work.STATUS_LABELS, due_text=work.due_text, nis2=editions.has("nis2"),
                            can_export=editions.has("incident_export"),
@@ -132,7 +163,7 @@ def incident_nis2(inc_id):
     stage = request.args.get("stage", "early")
     stage = stage if stage in nis2.STAGES else "early"
     notes = []
-    if editions.has("assignments"):
+    if work.enabled():
         rows, _ = work.load(a["alert_id"] for a in inc["alerts"])
         notes = [r["note"] for r in rows.values() if r.get("status") == "resolved" and r.get("note")]
     text_ = nis2.draft(inc, stage, notes)
@@ -152,7 +183,7 @@ def incident_export(inc_id):
     from db import get_feedback, get_trail
     inc = _incident_or_404(inc_id)
     alerts = inc["alerts"][:200]
-    rows, _ = work.load(a["alert_id"] for a in alerts) if editions.has("assignments") else ({}, set())
+    rows, _ = work.load(a["alert_id"] for a in alerts) if work.enabled() else ({}, set())
     t = lambda d: d.astimezone().strftime("%d/%m/%Y %H:%M:%S")          # noqa: E731
     md = [f"# Incident {inc['id']}: {inc['title']} on {inc['where']}", "",
           f"- SIEM: {inc['siem_name']}", f"- Status: {'needs a person' if inc['status'] == 'attention' else 'closed'}"
@@ -214,7 +245,7 @@ def _safe_name(text_):
 
 def _incident_work(incs):
     """inc id -> {"items", "open", "overdue", "assignees"} for alerts that need a person (Pro: assignments)."""
-    if not editions.has("assignments"):
+    if not work.enabled():
         return {}
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
@@ -229,6 +260,53 @@ def _incident_work(incs):
     return out
 
 
+# --------------------------------------------------------------------------- ask about this alert
+ASK_PER_10_MIN = 10
+
+
+@bp.post("/api/alerts/<alert_id>/ask")
+def ask_question(alert_id):
+    if not editions.has("ask"):
+        return jsonify(error="Asking about an alert needs Ardea Pro or MSP."), 403
+    if g.user["role"] not in auth.FEEDBACK_ROLES:
+        abort(403)
+    _main().require_alert_access(alert_id)
+    body = request.get_json(silent=True) or {}
+    question = " ".join(str(body.get("question") or request.form.get("question") or "").split())
+    if len(question) < 5:
+        return jsonify(error="Ask a question of at least a few words."), 400
+    if len(question) > 500:
+        return jsonify(error="Keep the question under 500 characters."), 400
+    with get_connection() as conn:
+        recent = conn.execute("SELECT count(*) AS n FROM alert_questions WHERE asked_by = %s "
+                              "AND created_at > NOW() - interval '10 minutes'", (g.user["username"],)).fetchone()
+        if recent["n"] >= ASK_PER_10_MIN:
+            return jsonify(error="That is a lot of questions: wait a few minutes."), 429
+        row = conn.execute("INSERT INTO alert_questions (alert_id, asked_by, question) VALUES (%s, %s, %s) "
+                           "RETURNING id", (alert_id, g.user["username"], question)).fetchone()
+        conn.commit()
+    return jsonify(id=row["id"])
+
+
+@bp.get("/api/alerts/<alert_id>/questions")
+def alert_questions(alert_id):
+    _main().require_alert_access(alert_id)
+    if not editions.has("ask"):
+        return jsonify(questions=[])
+    with get_connection() as conn:
+        rows = conn.execute("""SELECT id, asked_by, question, status, answer, cited, note, steps, created_at,
+                                      finished_at FROM alert_questions WHERE alert_id = %s ORDER BY id DESC LIMIT 20""",
+                            (alert_id,)).fetchall()
+    out = []
+    for r in rows:
+        evidence = next((s["evidence"] for s in (r["steps"] or []) if isinstance(s, dict) and "evidence" in s), [])
+        out.append({"id": r["id"], "asked_by": r["asked_by"], "question": r["question"], "status": r["status"],
+                    "answer": r["answer"] or "", "cited": r["cited"] or [], "note": r["note"] or "",
+                    "new_evidence": [{"id": e.get("id"), "tool": e.get("tool")} for e in evidence][:10],
+                    "asked": r["created_at"].isoformat() if r["created_at"] else ""})
+    return jsonify(questions=out)
+
+
 # --------------------------------------------------------------------------- my queue and deadlines
 def _locked_page(feature, template="incidents.html"):
     return render_template(template, locked=True, needs=editions.FEATURES[feature], edition=editions.edition(),
@@ -239,6 +317,8 @@ def _locked_page(feature, template="incidents.html"):
 def queue_page():
     if not editions.has("assignments"):
         return _locked_page("assignments", "queue.html")
+    if not work.enabled():
+        return render_template("queue.html", locked=False, disabled=True)
     main = _main()
     mine = main.visible_alerts(main.load_alerts())
     who = request.args.get("who", "all")
@@ -258,7 +338,7 @@ def queue_page():
 
 @bp.post("/queue/work")
 def queue_work():
-    if not editions.has("assignments"):
+    if not work.enabled():
         abort(403)
     if g.user["role"] not in auth.FEEDBACK_ROLES:
         abort(403)
@@ -277,6 +357,30 @@ def queue_work():
     except work.WorkError as exc:
         return redirect(f"{back}{'&' if '?' in back else '?'}error={_q(str(exc))}", code=303)
     return redirect(f"{back}{'&' if '?' in back else '?'}done={n}", code=303)
+
+
+@bp.post("/incidents/work")
+def incidents_work():
+    """Bulk actions on the Incidents page: apply to every alert that needs a person in the ticked incidents."""
+    if not work.enabled() or g.user["role"] not in auth.FEEDBACK_ROLES:
+        abort(403)
+    everything, _ = _main().load_incidents()
+    by_id = {i["id"]: i for i in everything if auth.can_see_siem(g.user, i["siem"])}
+    chosen = [by_id[i] for i in request.form.getlist("inc_id")[:200] if i in by_id]
+    back = request.form.get("back", "/incidents")
+    back = back if back.startswith("/incidents") and "//" not in back else "/incidents"
+    ids = [a["alert_id"] for inc in chosen for a in inc["alerts"] if a["verdict"] in work.NEEDS_PERSON]
+    sep = "&" if "?" in back else "?"
+    if not ids:
+        return redirect(f"{back}{sep}error={_q('Tick at least one incident that has alerts needing a person.')}",
+                        code=303)
+    siem_of = {a["alert_id"]: inc["siem"] for inc in chosen for a in inc["alerts"]}
+    try:
+        n = work.update(ids, g.user["username"], request.form.get("action", ""), request.form.get("assignee") or None,
+                        request.form.get("note", ""), siem_of=siem_of.get)
+    except work.WorkError as exc:
+        return redirect(f"{back}{sep}error={_q(str(exc))}", code=303)
+    return redirect(f"{back}{sep}done={n}", code=303)
 
 
 def _q(text_):

@@ -57,6 +57,8 @@ FEATURES = {                     # feature -> lowest edition that has it
     "assignments": "pro",            # assign alerts, response deadlines, my queue
     "nis2": "pro",                   # NIS2 report drafts from an incident
     "incident_export": "pro",        # incident export (ZIP) and print view
+    "ask": "pro",                    # ask a follow-up question about an alert
+    "suppressions": "pro",           # suppressions suggested from analyst feedback
     "multi_siem": "msp",
     "branding": "msp",
     "customer_reports": "msp",       # per-SIEM scheduled reports
@@ -64,6 +66,7 @@ FEATURES = {                     # feature -> lowest edition that has it
     "customer_context": "msp",       # per-SIEM environment facts and playbooks
     "usage_export": "msp",
     "host_watch": "msp",             # warning when a watched host goes quiet
+    "templates": "msp",              # settings templates applied across customer SIEMs
 }
 GRACE_UNREACHABLE = timedelta(days=30)
 GRACE_INVALID = timedelta(hours=72)

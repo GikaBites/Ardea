@@ -70,7 +70,7 @@ def claim_next_alert(conn):
                LIMIT 1
                FOR UPDATE SKIP LOCKED)
            RETURNING alert_id, attempts, count, rule_id, rule_name, host_name, user_name, alert_hash,
-                     incident_key, siem, elastic_id""",
+                     incident_key, siem, elastic_id, process_executable, parent_executable""",
         (WORKER_ID,)).fetchone()
 
 

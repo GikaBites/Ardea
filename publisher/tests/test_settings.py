@@ -296,3 +296,95 @@ def test_changing_the_pack_server_needs_the_password(key):
     r = post(c, "/admin/settings/playbooks", {"ARDEA_PACK_SERVER": "https://packs.example.net",
                                               "confirm_password": PASSWORD})
     assert r.status_code == 200 and rows()["ARDEA_PACK_SERVER"]["value"] == "https://packs.example.net"
+
+
+def _siem(c, sid, **extra):
+    form = {"id": sid, "name": sid.upper(), "url": f"https://es-{sid}.example:9200", "enabled": "true",
+            "events_indices": "logs-*", "confirm_password": PASSWORD, **extra}
+    assert post(c, "/admin/settings/siems/save", form).status_code == 200
+
+
+def _seed_alerts(sid, n=2):
+    with get_connection() as conn:
+        for i in range(n):
+            aid = f"{sid}:x{i}"
+            conn.execute("INSERT INTO alerts (alert_id, timestamp, status, siem) VALUES (%s, NOW(), 'done', %s)",
+                         (aid, sid))
+            conn.execute("INSERT INTO triage_results (alert_id, response, result, verdict) "
+                         "VALUES (%s, '{}', '{}', 'Benign Positive')", (aid,))
+            conn.execute("INSERT INTO feedback (alert_id, analyst, agrees) VALUES (%s, 'x', TRUE)", (aid,))
+            conn.execute("INSERT INTO alert_work (alert_id, status) VALUES (%s, 'open')", (aid,))
+            conn.execute("INSERT INTO alert_work_log (alert_id, actor, action) VALUES (%s, 'x', 'took it')", (aid,))
+            conn.execute("INSERT INTO alert_questions (alert_id, question) VALUES (%s, 'why?')", (aid,))
+        conn.execute("INSERT INTO siems (id, name, active) VALUES (%s, %s, FALSE) "
+                     "ON CONFLICT (id) DO UPDATE SET active = FALSE", (sid, sid.upper()))
+        conn.execute("INSERT INTO suppressions (siem, rule_name, process_executable, reason, expires_at) "
+                     "VALUES (%s, 'r', 'x.exe', 'because', NOW() + interval '1 day')", (sid,))
+        conn.execute("UPDATE users SET siem_access = ARRAY[%s, 'keep'] WHERE username = 'set.analyst'", (sid,))
+        conn.commit()
+
+
+def _count(sid):
+    with get_connection() as conn:
+        return (conn.execute("SELECT count(*) AS n FROM alerts WHERE siem = %s", (sid,)).fetchone()["n"],
+                conn.execute("SELECT count(*) AS n FROM alert_questions WHERE alert_id LIKE %s",
+                             (f"{sid}:%",)).fetchone()["n"],
+                conn.execute("SELECT count(*) AS n FROM suppressions WHERE siem = %s", (sid,)).fetchone()["n"])
+
+
+def test_delete_the_data_of_a_removed_siem(key):
+    _seed_alerts("gone")
+    c = login("set.admin")
+    html = c.get("/admin/settings/siems", base_url=BASE).get_data(as_text=True)
+    assert "no longer configured" in html and "Type gone to confirm" in html
+    r = post(c, "/admin/settings/siems/gone/purge", {"confirm_id": "nope", "confirm_password": PASSWORD})
+    assert r.status_code == 400 and _count("gone") == (2, 2, 1)
+    r = post(c, "/admin/settings/siems/gone/purge", {"confirm_id": "gone", "confirm_password": "wrong"})
+    assert r.status_code == 400 and _count("gone")[0] == 2
+    r = post(c, "/admin/settings/siems/gone/purge", {"confirm_id": "gone", "confirm_password": PASSWORD})
+    assert r.status_code == 200 and "2 alerts" in r.get_data(as_text=True)
+    assert _count("gone") == (0, 0, 0)
+    with get_connection() as conn:
+        assert conn.execute("SELECT siem_access FROM users WHERE username = 'set.analyst'").fetchone()["siem_access"] == ["keep"]
+        assert not conn.execute("SELECT 1 FROM siems WHERE id = 'gone'").fetchone()
+    assert ("SIEM gone", "data deleted (2 alerts)") in audit()
+    _siem(c, "live")
+    _seed_alerts("live", 1)
+    assert post(c, "/admin/settings/siems/live/purge", {"confirm_id": "live", "confirm_password": PASSWORD}).status_code == 400
+    r = post(c, "/admin/settings/siems/live/delete", {"purge": "1", "confirm_id": "x", "confirm_password": PASSWORD})
+    assert r.status_code == 400 and _count("live")[0] == 1
+    r = post(c, "/admin/settings/siems/live/delete", {"purge": "1", "confirm_id": "live", "confirm_password": PASSWORD})
+    assert r.status_code == 200 and "data deleted (1 alerts)" in r.get_data(as_text=True) and _count("live") == (0, 0, 0)
+    with get_connection() as conn:
+        conn.execute("UPDATE users SET siem_access = NULL WHERE username = 'set.analyst'")
+        conn.commit()
+
+
+def test_settings_templates_need_msp_and_apply_to_many_siems(key, monkeypatch):
+    c = login("set.admin")
+    _siem(c, "acme", context="Backups run as svc.backup")
+    _siem(c, "beta")
+    import editions
+    monkeypatch.setattr(editions, "has", lambda f: f != "templates")
+    assert "With Ardea MSP" in c.get("/admin/settings/siems", base_url=BASE).get_data(as_text=True)
+    assert post(c, "/admin/settings/siems/templates/save", {"name": "x"}).status_code == 403
+    monkeypatch.setattr(editions, "has", lambda f: True)
+    t = {"name": "Windows customers", "events_indices": "logs-endpoint.*, logs-windows.*",
+         "context": "RMM agent runs as SYSTEM\nBackups run as svc.backup", "context_mode": "add",
+         "notify_smtp_to": "soc@msp.example", "default": "1"}
+    assert post(c, "/admin/settings/siems/templates/save", {**t, "notify_smtp_to": "not-mail"}).status_code == 400
+    assert post(c, "/admin/settings/siems/templates/save", t).status_code == 200
+    assert post(c, "/admin/settings/siems/templates/save", t).status_code == 400          # same name twice
+    r = c.post("/admin/settings/siems/templates/apply", base_url=BASE, headers={"Origin": BASE},
+               data={"csrf_token": c.csrf, "name": "Windows customers", "siem": ["acme", "beta"]})
+    assert r.status_code == 200 and "Applied to 2 SIEMs" in r.get_data(as_text=True)
+    items = {s["id"]: s for s in json.loads(rows()[A.SIEMS_KEY]["value"])}
+    assert items["acme"]["context"] == ["Backups run as svc.backup", "RMM agent runs as SYSTEM"]
+    assert items["beta"]["events_indices"] == ["logs-endpoint.*", "logs-windows.*"]
+    assert items["beta"]["notify"] == {"smtp_to": ["soc@msp.example"]} and items["acme"]["url"] == "https://es-acme.example:9200"
+    html = c.get("/admin/settings/siems?edit=new", base_url=BASE).get_data(as_text=True)
+    assert 'Started from the default template "Windows customers"' in html and "logs-endpoint.*" in html
+    assert post(c, "/admin/settings/siems/templates/delete", {"name": "Windows customers"}).status_code == 200
+    assert json.loads(rows()[A.SIEM_TEMPLATES_KEY]["value"]) == []
+    for sid in ("acme", "beta"):
+        post(c, f"/admin/settings/siems/{sid}/delete", {"confirm_password": PASSWORD})

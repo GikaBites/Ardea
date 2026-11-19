@@ -28,9 +28,9 @@
 			{% endif %}
 			{% if g.user %}
 			<div class="ar-nav__links">
-				{% if not g.user.must_change_password %}
+				{% if not g.user.must_change_password or g.user.sso %}
 				<a class="ar-nav__link {% if request.path == '/' %}is-active{% endif %}" href="/">Alerts</a>
-				<a class="ar-nav__link {% if request.path.startswith('/queue') %}is-active{% endif %}" href="/queue">Queue</a>
+				{% if queue_on %}<a class="ar-nav__link {% if request.path.startswith('/queue') %}is-active{% endif %}" href="/queue">Queue</a>{% endif %}
 				<a class="ar-nav__link {% if request.path.startswith('/incidents') %}is-active{% endif %}" href="/incidents">Incidents</a>
 				<a class="ar-nav__link {% if request.path.startswith('/insights') %}is-active{% endif %}" href="/insights/report">Insights</a>
 				{% if g.user.role == "admin" %}

@@ -210,6 +210,26 @@
 		trail.appendChild(el("div", "ar-trail__body"));
 		body.appendChild(trail);
 
+		if (state.canAsk) {                         // Pro: follow-up questions answered from the evidence
+			const ask = el("details", "ar-trail ar-ask");
+			ask.dataset.askFor = alert.alert_id;
+			ask.appendChild(el("summary", "", "Ask about this alert"));
+			const askBody = el("div", "ar-ask__body");
+			const form = el("form", "ar-ask__form");
+			const input = el("input", "form-control form-control-sm");
+			input.name = "question";
+			input.maxLength = 500;
+			input.placeholder = "e.g. Did this user log on to other hosts that day?";
+			input.setAttribute("aria-label", "Your question");
+			form.appendChild(input);
+			const send = el("button", "ar-button", "Ask");
+			send.type = "submit";
+			form.appendChild(send);
+			askBody.appendChild(form);
+			askBody.appendChild(el("div", "ar-ask__list"));
+			ask.appendChild(askBody);
+			body.appendChild(ask);
+		}
 		if (state.canFeedback) body.appendChild(buildFeedback(alert));
 		if (state.canRetriage) {
 			const re = el("div", "ar-retriage");
@@ -511,6 +531,72 @@
 			body.textContent = "Could not load the trail.";
 		}
 	}, true);
+
+	// ------------------------------------------------------------------ ask about this alert (Pro)
+	function renderQuestions(box, questions) {
+		const listEl = box.querySelector(".ar-ask__list");
+		listEl.replaceChildren();
+		for (const q of questions) {
+			const item = el("div", `ar-ask__item is-${q.status}`);
+			item.appendChild(el("div", "ar-ask__q", `${q.asked_by}: ${q.question}`));
+			const text = q.status === "done" ? q.answer
+				: q.status === "failed" ? (q.note || "Answering failed.")
+				: "Waiting for the worker… (it answers between alerts, usually within a few minutes)";
+			item.appendChild(el("div", "ar-ask__a", text));
+			const meta = [];
+			if (q.cited?.length) meta.push(`Evidence cited: ${q.cited.join(", ")}`);
+			if (q.new_evidence?.length) meta.push(`New queries: ${q.new_evidence.map((e) => `${e.id} ${e.tool}`).join(", ")}`);
+			if (q.status === "done" && q.note) meta.push(q.note);
+			if (meta.length) item.appendChild(el("div", "ar-muted ar-mono ar-ask__meta", meta.join(" · ")));
+			listEl.appendChild(item);
+		}
+		return questions.some((q) => q.status === "queued" || q.status === "running");
+	}
+
+	async function loadQuestions(box, poll) {
+		try {
+			const r = await fetch(`/api/alerts/${encodeURIComponent(box.dataset.askFor)}/questions`);
+			if (sessionEnded(r)) return;
+			const pending = renderQuestions(box, (await r.json()).questions || []);
+			if (pending && poll && box.open) setTimeout(() => loadQuestions(box, true), 4000);
+		} catch {
+			box.querySelector(".ar-ask__list").textContent = "Could not load the questions.";
+		}
+	}
+
+	list.addEventListener("toggle", (event) => {
+		const box = event.target;
+		if (box instanceof HTMLDetailsElement && box.open && box.dataset.askFor) loadQuestions(box, true);
+	}, true);
+
+	list.addEventListener("submit", async (event) => {
+		const form = event.target.closest(".ar-ask__form");
+		if (!form) return;
+		event.preventDefault();
+		const box = form.closest(".ar-ask");
+		const input = form.querySelector("input");
+		const question = input.value.trim();
+		if (!question) return;
+		const btn = form.querySelector("button");
+		btn.disabled = true;
+		try {
+			const r = await fetch(`/api/alerts/${encodeURIComponent(box.dataset.askFor)}/ask`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+				body: JSON.stringify({ question }),
+			});
+			if (sessionEnded(r)) return;
+			const res = await r.json().catch(() => ({}));
+			if (!r.ok) {
+				box.querySelector(".ar-ask__list").prepend(el("div", "ar-ask__item is-failed", res.error || `Error ${r.status}`));
+			} else {
+				input.value = "";
+				loadQuestions(box, true);
+			}
+		} finally {
+			btn.disabled = false;
+		}
+	});
 
 	// ------------------------------------------------------------------ feedback and copy
 	async function sendFeedback(box, agrees, correct) {

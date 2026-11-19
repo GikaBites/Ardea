@@ -10,6 +10,11 @@
 		});
 	}
 	document.querySelector("[data-print]")?.addEventListener("click", () => window.print());
+	for (const all of document.querySelectorAll("[data-select-all]")) {    // tick or untick every row
+		all.addEventListener("change", () => {
+			for (const box of document.querySelectorAll(`input[type=checkbox][name="${all.dataset.selectAll}"]`)) box.checked = all.checked;
+		});
+	}
 	for (const btn of document.querySelectorAll("[data-copy-target]")) {
 		btn.addEventListener("click", () => {
 			const field = document.getElementById(btn.dataset.copyTarget);

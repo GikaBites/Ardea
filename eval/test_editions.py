@@ -255,7 +255,7 @@ def test_feature_matrix():
     expected = {"community": set(),
                 "pro": {"notifications", "integrations", "playbook_pack", "eval_export", "sso", "reports", "tuning",
                         "csv_export", "retriage", "incidents", "source_health", "digest",
-                        "assignments", "nis2", "incident_export"},
+                        "assignments", "nis2", "incident_export", "ask", "suppressions"},
                 "msp": set(licensing.FEATURES)}
     for tier, features in expected.items():
         licensing.set_tier(tier)

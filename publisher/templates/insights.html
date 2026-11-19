@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Insights · {{ product_name }}{% endblock %}
-{% set names = {"report": "Report", "trends": "Trends", "tuning": "Rule tuning"} %}
+{% set names = {"report": "Report", "trends": "Trends", "tuning": "Rule tuning", "suppressions": "Suppressions"} %}
 {% block body %}
 <main class="insights">
 	<div class="ins-head">
@@ -11,6 +11,7 @@
 				<a href="/insights/trends{% if not locked and siem %}?siem={{ siem }}{% endif %}" class="{{ 'is-active' if section == 'trends' }}">Trends</a>
 				{% if g.user.role in ("admin", "analyst") %}
 				<a href="/insights/tuning{% if not locked and siem %}?siem={{ siem }}{% endif %}" class="{{ 'is-active' if section == 'tuning' }}">Rule tuning</a>
+				<a href="/insights/suppressions{% if not locked and siem %}?siem={{ siem }}{% endif %}" class="{{ 'is-active' if section == 'suppressions' }}">Suppressions</a>
 				{% endif %}
 			</nav>
 		</div>
@@ -46,6 +47,10 @@
 		<h2>Silence the noise at its source</h2>
 		<p>The rule-tuning advisor finds alert patterns that {{ product_name }} closed again and again and no analyst disputed, such as the same backup script, installer or admin tool, and writes the Elastic rule exception for each one, ready to paste.</p>
 		<ul><li>Fewer alerts, before triage even starts</li><li>Exact conditions: program, parent, account, and host when it is only one</li><li>Never suggested for credential access, lateral movement, impact or exfiltration rules</li></ul>
+		{% elif section == "suppressions" %}
+		<h2>Stop re-investigating what your team already closed</h2>
+		<p>When your analysts keep marking the same pattern as benign, such as the same program started by the same parent under the same account, {{ product_name }} suggests a suppression. Create it with a reason and an expiry, and matching alerts are closed at once, without the model, with the suppression named on each one.</p>
+		<ul><li>Suggested from your analysts' feedback, never from the model alone</li><li>Every suppression expires and counts its hits; revoke it in one click</li><li>Never applied to credential access, lateral movement, impact or exfiltration</li></ul>
 		{% elif section == "trends" %}
 		<h2>See triage improve week by week</h2>
 		<p>Weekly verdicts, how often your analysts agree with {{ product_name }}, and how long each alert takes, for the last 12 weeks.</p>
@@ -132,6 +137,53 @@
 				<td class="num">{{ (w.agreement_pct | string) + "%" if w.agreement_pct is not none else "–" }}</td><td class="num">{{ w.median_min if w.median_min is not none else "–" }}</td></tr>{% endfor %}</tbody>
 		</table></div>
 		{% else %}<p class="ins-muted">No alerts in the last 12 weeks.</p>{% endif %}
+	</section>
+
+	{% elif section == "suppressions" %}
+	{% if data.error %}<div class="alert alert-danger py-2" role="alert">{{ data.error }}</div>{% endif %}
+	{% if data.done %}<div class="alert alert-success py-2">Suppression {{ data.done }}.</div>{% endif %}
+	<section class="ins-block">
+		<h2>Suggested by your analysts' feedback</h2>
+		<p class="ins-muted">Patterns from the last 30 days that analysts called benign or false at least 3 times and never a true positive. A suppression closes matching alerts without an investigation, so they no longer need a person and cost no model time. It never applies to alerts with credential access, lateral movement, impact or exfiltration, or to alerts with text that tries to instruct the model.</p>
+		{% for r in data.suggestions %}
+		<article class="ins-pattern">
+			<header><strong>{{ r.rule_name }}</strong><span class="ins-muted">{{ r.confirmed }} of {{ r.alerts }} alerts called {{ r.said or "benign" }} by analysts{% if r.reviews %} · {{ r.reviews }} sent for review{% endif %} · {{ r.hosts }} host{{ '' if r.hosts == 1 else 's' }} · last {{ r.last_seen | localtime }}{% if siems | length > 1 %} · {{ siem_names.get(r.siem, r.siem) }}{% endif %}</span></header>
+			<ul class="ins-conds"><li>Program <code>{{ r.process_executable }}</code></li>{% if r.parent_executable %}<li>started by <code>{{ r.parent_executable }}</code></li>{% endif %}{% if r.user_name %}<li>as <code>{{ r.user_name }}</code></li>{% endif %}</ul>
+			<form method="post" action="/suppressions" class="sup-form">
+				<input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" />
+				{% for k in ("siem", "rule_name", "process_executable", "parent_executable", "user_name") %}<input type="hidden" name="{{ k }}" value="{{ r[k] or '' }}" />{% endfor %}
+				<input class="form-control form-control-sm" name="reason" required minlength="5" maxlength="500" placeholder="Why it is safe, e.g. nightly backup job" />
+				<select class="form-select form-select-sm" name="verdict" aria-label="Verdict"><option{{ ' selected' if r.said != 'False Positive' }}>Benign Positive</option><option{{ ' selected' if r.said == 'False Positive' }}>False Positive</option></select>
+				{% if r.hosts == 1 %}<label class="form-check ins-muted small mb-0"><input class="form-check-input" type="checkbox" name="host_name" value="{{ r.a_host }}" checked /> only on {{ r.a_host }}</label>{% endif %}
+				<label class="ins-muted small mb-0">for <input class="form-control form-control-sm sup-days" type="number" name="days" min="1" max="{{ data.max_days }}" value="{{ data.days }}" /> days</label>
+				<button class="btn btn-primary btn-sm">Create suppression</button>
+			</form>
+		</article>
+		{% else %}
+		<p class="ins-empty">No suggestions. They appear once analysts have called the same pattern benign or false at least 3 times in 30 days, using the feedback buttons on each alert.</p>
+		{% endfor %}
+	</section>
+	<section class="ins-block">
+		<h2>Suppressions</h2>
+		{% if data.list %}
+		<div class="ins-table"><table class="q-table">
+			<thead><tr><th>#</th><th>Pattern</th><th>Reason</th><th>Closed</th><th>Until</th><th></th></tr></thead>
+			<tbody>
+			{% for s in data.list %}
+			<tr id="s{{ s.id }}" class="{{ '' if s.active else 'ins-muted' }}">
+				<td>{{ s.id }}</td>
+				<td><strong>{{ s.rule_name }}</strong>{% if siems | length > 1 and s.siem %} <span class="ins-muted small">{{ siem_names.get(s.siem, s.siem) }}</span>{% endif %}<br><span class="small"><code>{{ s.process_executable }}</code>{% if s.parent_executable %} ← <code>{{ s.parent_executable }}</code>{% endif %}{% if s.user_name %} · {{ s.user_name }}{% endif %}{% if s.host_name %} · on {{ s.host_name }}{% endif %}</span></td>
+				<td>{{ s.verdict }}: {{ s.reason }}<br><span class="ins-muted small">by {{ s.created_by }}, {{ s.created_at | localtime("%d/%m/%Y") }}</span></td>
+				<td>{{ s.hits }}{% if s.last_hit_at %}<br><span class="ins-muted small">last {{ s.last_hit_at | localtime("%d/%m %H:%M") }}</span>{% endif %}</td>
+				<td class="ins-nowrap">{% if s.revoked_at %}Revoked {{ s.revoked_at | localtime("%d/%m/%Y") }}{% if s.revoked_by %} by {{ s.revoked_by }}{% endif %}{% elif not s.active %}Expired {{ s.expires_at | localtime("%d/%m/%Y") }}{% else %}{{ s.expires_at | localtime("%d/%m/%Y") }}{% endif %}</td>
+				<td class="text-end">{% if s.active %}<form method="post" action="/suppressions/{{ s.id }}/revoke"><input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" /><button class="btn btn-outline-light btn-sm">Revoke</button></form>{% endif %}</td>
+			</tr>
+			{% endfor %}
+			</tbody>
+		</table></div>
+		{% else %}
+		<p class="ins-empty">No suppressions yet.</p>
+		{% endif %}
 	</section>
 
 	{% else %}

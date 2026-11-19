@@ -49,7 +49,8 @@ def overdue(conn, now: datetime) -> list[dict]:
 
 def run_due(conn, now: datetime | None = None, send=None) -> list[str]:
     """Announce newly overdue alerts. Never raises. Returns the alert ids announced."""
-    if not licensing.has("assignments") or appsettings.env("OVERDUE_NOTIFY", "true").lower() != "true":
+    if (not licensing.has("assignments") or appsettings.env("QUEUE_ENABLED", "true").lower() != "true"
+            or appsettings.env("OVERDUE_NOTIFY", "true").lower() != "true"):
         return []
     now = now or datetime.now(timezone.utc)
     try:

@@ -438,6 +438,9 @@ def delete_siem(form, siem_id: str):
         items = _siem_list(snap)
         if not any(s.get("id") == siem_id for s in items):
             raise SettingsError("That SIEM does not exist any more.")
+        purge = form.get("purge") == "1"
+        if purge and (form.get("confirm_id") or "").strip() != siem_id:
+            raise SettingsError(f"Type the SIEM ID ({siem_id}) to delete its data too. Nothing was removed.")
         _check_password(form)
         items = [s for s in items if s.get("id") != siem_id]
         if items:
@@ -447,6 +450,178 @@ def delete_siem(form, siem_id: str):
         for k in A.SIEM_SECRETS + tuple("notify." + n for n in A.SIEM_NOTIFY_SECRETS):
             _delete(conn, A.siem_secret_name(siem_id, k))
         _audit(conn, actor, ip, f"SIEM {siem_id}", "removed")
+        if not purge:
+            return None
+        conn.execute("UPDATE siems SET active = FALSE WHERE id = %s", (siem_id,))
+        n = purge_siem_data(conn, siem_id)
+        _audit(conn, actor, ip, f"SIEM {siem_id}", f"data deleted ({n} alerts)")
+    auth.audit(actor, "siem_data_deleted", siem_id, ip, f"{n} alerts")
+    return n
+
+
+# --------------------------------------------------------------------------- deleting a SIEM's data
+PURGE_ALERT_TABLES = ("alert_work_log", "alert_work", "alert_questions", "notifications", "feedback",
+                      "investigation_steps", "triage_results", "outbound_requests")
+
+
+def configured_siem_ids(conn, snap=None) -> set[str]:
+    snap = snap or _snapshot(conn)
+    ids = {s.get("id") for s in _siem_list(snap)}
+    ids |= {r["id"] for r in conn.execute("SELECT id FROM siems WHERE active").fetchall()}
+    return ids
+
+
+def leftover_siems(conn, snap=None) -> list[dict]:
+    """SIEMs that are no longer configured but still have alerts in the database."""
+    configured = configured_siem_ids(conn, snap)
+    rows = conn.execute("""SELECT a.siem, count(*) AS alerts, max(a.timestamp) AS last, max(s.name) AS name
+                           FROM alerts a LEFT JOIN siems s ON s.id = a.siem
+                           WHERE a.siem IS NOT NULL GROUP BY a.siem ORDER BY a.siem""").fetchall()
+    return [r for r in rows if r["siem"] not in configured]
+
+
+def purge_siem_data(conn, siem_id: str) -> int:
+    """Delete everything stored for one SIEM: alerts and all that hangs off them, its health, fetch position,
+    suppressions and name. Users restricted to it keep their other SIEMs (and see nothing if it was the only one).
+    Returns the number of alerts deleted."""
+    ids = "SELECT alert_id FROM alerts WHERE siem = %(s)s"
+    p = {"s": siem_id}
+    for t in PURGE_ALERT_TABLES:
+        conn.execute(f"DELETE FROM {t} WHERE alert_id IN ({ids})", p)
+    conn.execute(f"DELETE FROM alert_occurrences WHERE parent_alert_id IN ({ids})", p)
+    n = conn.execute("DELETE FROM alerts WHERE siem = %(s)s", p).rowcount
+    for t, col in (("source_health", "siem"), ("fetcher_siem_state", "siem"), ("suppressions", "siem"),
+                   ("siems", "id")):
+        if conn.execute("SELECT to_regclass(%s) AS t", (f"public.{t}",)).fetchone()["t"]:
+            conn.execute(f"DELETE FROM {t} WHERE {col} = %(s)s", p)
+    conn.execute("DELETE FROM app_settings WHERE name LIKE %s", (f"SIEM.{siem_id}.%",))
+    conn.execute("UPDATE users SET siem_access = array_remove(siem_access, %(s)s) WHERE %(s)s = ANY(siem_access)", p)
+    return n
+
+
+def delete_siem_data(form, siem_id: str) -> int:
+    """The 'Delete its data' button for a SIEM that is no longer configured."""
+    actor, ip = g.user["username"], _main()._client_ip()
+    if (form.get("confirm_id") or "").strip() != siem_id:
+        raise SettingsError(f"Type the SIEM ID ({siem_id}) to confirm. Nothing was deleted.")
+    _check_password(form)
+    with _conn() as conn:
+        if siem_id in configured_siem_ids(conn):
+            raise SettingsError("That SIEM is still configured. Remove it first.")
+        n = purge_siem_data(conn, siem_id)
+        _audit(conn, actor, ip, f"SIEM {siem_id}", f"data deleted ({n} alerts)")
+    auth.audit(actor, "siem_data_deleted", siem_id, ip, f"{n} alerts")
+    return n
+
+
+# --------------------------------------------------------------------------- settings templates (MSP)
+TEMPLATE_FIELDS = ("alerts_index", "events_indices", "context", "report_to", "notify_smtp_to")
+MAX_TEMPLATES = 30
+
+
+def _templates(snap) -> list[dict]:
+    try:
+        v = json.loads(snap["rows"][A.SIEM_TEMPLATES_KEY]["value"]) if A.SIEM_TEMPLATES_KEY in snap["rows"] else []
+        return v if isinstance(v, list) else []
+    except ValueError:
+        return []
+
+
+def _template_from(form) -> dict:
+    t = {"name": _clean_text(form.get("name", ""), 60)}
+    if not t["name"]:
+        raise SettingsError("Give the template a name.")
+    t["alerts_index"] = _clean_text(form.get("alerts_index", ""), 200)
+    t["events_indices"] = [x.strip() for x in _clean_text(form.get("events_indices", ""), 500).split(",") if x.strip()]
+    t["context"] = [x.strip()[:300] for x in (form.get("context") or "").splitlines() if x.strip()][:20]
+    if any(CTRL_RE.search(x) for x in t["context"]):
+        raise SettingsError("The facts contain characters that are not allowed.")
+    t["context_mode"] = "replace" if form.get("context_mode") == "replace" else "add"
+    t["report_to"] = [x.strip() for x in (form.get("report_to") or "").split(",") if x.strip()][:20]
+    t["notify_smtp_to"] = [x.strip() for x in (form.get("notify_smtp_to") or "").split(",") if x.strip()][:20]
+    for x in t["report_to"] + t["notify_smtp_to"]:
+        if not EMAIL_RE.match(x):
+            raise SettingsError(f"'{x[:80]}' is not an e-mail address.")
+    t["default"] = form.get("default") == "1"
+    return t
+
+
+def save_template(form, old_name: str | None):
+    actor, ip = g.user["username"], _main()._client_ip()
+    t = _template_from(form)
+    with _conn() as conn:
+        items = _templates(_snapshot(conn))
+        if old_name and not any(x.get("name") == old_name for x in items):
+            raise SettingsError("That template does not exist any more.")
+        if t["name"] != old_name and any(x.get("name") == t["name"] for x in items):
+            raise SettingsError(f"A template called '{t['name']}' already exists.")
+        if not old_name and len(items) >= MAX_TEMPLATES:
+            raise SettingsError(f"At most {MAX_TEMPLATES} templates.")
+        if t["default"]:
+            for x in items:
+                x["default"] = False
+        items = [t if x.get("name") == old_name else x for x in items] if old_name else items + [t]
+        _put(conn, A.SIEM_TEMPLATES_KEY, json.dumps(items), actor)
+        _audit(conn, actor, ip, f"template {t['name']}", "changed" if old_name else "added")
+
+
+def delete_template(name: str):
+    actor, ip = g.user["username"], _main()._client_ip()
+    with _conn() as conn:
+        items = _templates(_snapshot(conn))
+        rest = [x for x in items if x.get("name") != name]
+        if len(rest) == len(items):
+            return
+        _put(conn, A.SIEM_TEMPLATES_KEY, json.dumps(rest), actor)
+        _audit(conn, actor, ip, f"template {name}", "removed")
+
+
+def apply_template_to(item: dict, t: dict) -> dict:
+    """A SIEM entry with the template's non-empty values applied. Facts are added (or replace, if the template
+    says so); every other value set in the template replaces the SIEM's own."""
+    out = dict(item)
+    if t.get("alerts_index"):
+        out["alerts_index"] = t["alerts_index"]
+    if t.get("events_indices"):
+        out["events_indices"] = list(t["events_indices"])
+    if t.get("context"):
+        base = [] if t.get("context_mode") == "replace" else list(item.get("context") or [])
+        out["context"] = list(dict.fromkeys(base + list(t["context"])))[:20]
+    if t.get("report_to"):
+        out["report_to"] = list(t["report_to"])
+    if t.get("notify_smtp_to"):
+        out["notify"] = {**(item.get("notify") or {}), "smtp_to": list(t["notify_smtp_to"])}
+    return out
+
+
+def apply_template(form, name: str) -> list[str]:
+    """Apply a template to the ticked SIEMs. Returns their ids."""
+    actor, ip = g.user["username"], _main()._client_ip()
+    chosen = set(form.getlist("siem")) if hasattr(form, "getlist") else set(form.get("siem") or [])
+    with _conn() as conn:
+        snap = _snapshot(conn)
+        if snap["env"].get("SIEMS_FILE"):
+            raise SettingsError("The SIEMs come from siems/siems.json on the server.")
+        t = next((x for x in _templates(snap) if x.get("name") == name), None)
+        if t is None:
+            raise SettingsError("That template does not exist any more.")
+        items = _siem_list(snap)
+        done = []
+        new = []
+        for s in items:
+            if s.get("id") in chosen:
+                s = apply_template_to(s, t)
+                done.append(s["id"])
+            new.append(s)
+        if not done:
+            raise SettingsError("Tick at least one SIEM.")
+        try:
+            siem_config.parse({"siems": [{**s, "enabled": True} for s in new if s.get("id") in done]})
+        except siem_config.SiemConfigError as exc:
+            raise SettingsError(str(exc).replace("siems.json ", "")) from None
+        _put(conn, A.SIEMS_KEY, json.dumps(new), actor)
+        _audit(conn, actor, ip, f"template {name}", f"applied to {', '.join(done)}"[:300])
+    return done
 
 
 def move_siem(siem_id: str, up: bool):
@@ -570,19 +745,45 @@ def _edit_values(siems_state, edit, form) -> dict:
     return out
 
 
-def _render(group, status=200, error=None, notes=None, edit=None, form=None):
+def _render(group, status=200, error=None, notes=None, edit=None, form=None, template=None):
+    template = template or (request.args.get("template") if group == "siems" else None)
     with _conn() as conn:
         snap = _snapshot(conn)
+        leftovers = leftover_siems(conn, snap) if group == "siems" else []
         audit = conn.execute("""SELECT at, actor, name, action FROM settings_audit
                                 ORDER BY id DESC LIMIT 40""").fetchall() if group == "audit" else []
         packs = _packs_state(conn) if group == "playbooks" else None
     fields = [_field_state(f, snap) for f in A.FIELDS if f.group == group]
     siems = _siems_state(snap) if group == "siems" else None
-    ev = _edit_values(siems, edit, form) if edit else None
+    ev = _edit_values(siems, edit, None if template else form) if edit else None
+    templates = _templates(snap) if group == "siems" else []
+    if ev is not None and edit == "new" and not form:            # a new SIEM starts from the default template
+        t = next((x for x in templates if x.get("default")), None)
+        if t and editions.has("templates"):
+            ev.update(alerts_index=t.get("alerts_index", ""), events_indices=", ".join(t.get("events_indices") or []),
+                      context="\n".join(t.get("context") or []), report_to=", ".join(t.get("report_to") or []),
+                      notify_smtp_to=", ".join(t.get("notify_smtp_to") or []), from_template=t["name"])
+    tv = None
+    if template:
+        saved = next((x for x in templates if x.get("name") == template), None)
+        if form is not None:
+            tv = {k: form.get(k, "") for k in ("name", "alerts_index", "events_indices", "context", "report_to",
+                                               "notify_smtp_to", "context_mode", "default")}
+            tv["default"] = form.get("default") == "1"
+        elif saved:
+            tv = {"name": saved["name"], "alerts_index": saved.get("alerts_index", ""),
+                  "events_indices": ", ".join(saved.get("events_indices") or []),
+                  "context": "\n".join(saved.get("context") or []), "report_to": ", ".join(saved.get("report_to") or []),
+                  "notify_smtp_to": ", ".join(saved.get("notify_smtp_to") or []),
+                  "context_mode": saved.get("context_mode", "add"), "default": saved.get("default", False)}
+        else:
+            tv = {"context_mode": "add"}
+        tv["old_name"] = saved["name"] if saved else None
     logo = snap["rows"].get(A.BRAND_LOGO_KEY)
     return render_template(
         "settings.html", group=group, groups=A.GROUPS + [("audit", "Change log")], fields=fields,
-        siems=siems, edit=edit, ev=ev, packs=packs, pack_feature=editions.has("playbook_pack"),
+        siems=siems, edit=edit, ev=ev, packs=packs, templates=templates, template=template, tv=tv,
+        leftovers=leftovers, can_templates=editions.has("templates"), pack_feature=editions.has("playbook_pack"),
         has_key=bool(snap["meta"]), error=error, notes=notes or [], audit=audit,
         workers=snap["status"], logo=bool(logo), needs_password=not g.user.get("sso"),
         msp=editions.has("multi_siem"), edition=editions.edition(), license=_main()._license_view()), status
@@ -641,10 +842,57 @@ def siem_save():
 def siem_delete(siem_id):
     _admin()
     try:
-        delete_siem(request.form, siem_id)
+        n = delete_siem(request.form, siem_id)
+    except SettingsError as exc:
+        return _render("siems", 400, error=str(exc), edit=siem_id)
+    if n is None:
+        return _render("siems", notes=[f"SIEM {siem_id} removed. Its alerts stay in Ardea."])
+    return _render("siems", notes=[f"SIEM {siem_id} removed and its data deleted ({n} alerts)."])
+
+
+@bp.post("/admin/settings/siems/<siem_id>/purge")
+def siem_purge(siem_id):
+    _admin()
+    try:
+        n = delete_siem_data(request.form, siem_id)
     except SettingsError as exc:
         return _render("siems", 400, error=str(exc))
-    return _render("siems", notes=[f"SIEM {siem_id} removed. Its alerts stay in Ardea."])
+    return _render("siems", notes=[f"Deleted everything stored for {siem_id} ({n} alerts)."])
+
+
+def _templates_allowed():
+    _admin()
+    if not editions.has("templates"):
+        abort(403)
+
+
+@bp.post("/admin/settings/siems/templates/save")
+def template_save():
+    _templates_allowed()
+    old = request.form.get("old_name") or None
+    try:
+        save_template(request.form, old)
+    except SettingsError as exc:
+        return _render("siems", 400, error=str(exc), template=old or "new", form=request.form)
+    return _render("siems", notes=["Template saved. Apply it to SIEMs below; nothing changes until you do."])
+
+
+@bp.post("/admin/settings/siems/templates/delete")
+def template_delete():
+    _templates_allowed()
+    delete_template(request.form.get("name", ""))
+    return _render("siems", notes=["Template removed. SIEMs it was applied to keep their values."])
+
+
+@bp.post("/admin/settings/siems/templates/apply")
+def template_apply():
+    _templates_allowed()
+    try:
+        done = apply_template(request.form, request.form.get("name", ""))
+    except SettingsError as exc:
+        return _render("siems", 400, error=str(exc))
+    return _render("siems", notes=[f"Applied to {len(done)} SIEM{'s' if len(done) != 1 else ''}: {', '.join(done)}. "
+                                   "The worker and fetcher pick it up within about a minute."])
 
 
 @bp.post("/admin/settings/siems/<siem_id>/move")

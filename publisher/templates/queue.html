@@ -6,7 +6,7 @@
 	<div class="ins-head">
 		<div>
 			<h1 class="ins-title">Queue</h1>
-			{% if not locked %}
+			{% if not locked and not disabled %}
 			<nav class="ins-tabs" aria-label="Whose alerts">
 				<a href="?who=mine&range={{ range_key }}" class="{{ 'is-active' if who == 'mine' }}">Mine ({{ counts.mine }})</a>
 				<a href="?who=unassigned&range={{ range_key }}" class="{{ 'is-active' if who == 'unassigned' }}">Unassigned ({{ counts.unassigned }})</a>
@@ -14,7 +14,7 @@
 			</nav>
 			{% endif %}
 		</div>
-		{% if not locked %}
+		{% if not locked and not disabled %}
 		<form class="ins-controls" method="get" action="/queue">
 			<input type="hidden" name="who" value="{{ who }}" />
 			<label class="visually-hidden" for="q-range">Period</label>
@@ -28,7 +28,9 @@
 		{% endif %}
 	</div>
 
-	{% if locked %}
+	{% if disabled %}
+	<section class="ins-block"><p class="mb-0 ins-muted">The queue is switched off.{% if g.user.role == "admin" %} Switch it on under <a href="/admin/settings/deadlines">Settings → Response deadlines</a>; assignments and notes made before are kept.{% else %} An administrator can switch it on.{% endif %}</p></section>
+	{% elif locked %}
 	<section class="ins-locked">
 		<p class="ins-eyebrow">{{ needs | upper }} feature</p>
 		<h2>Nothing that needs a person falls through the cracks</h2>
@@ -65,7 +67,7 @@
 		</div>
 		{% endif %}
 		<div class="ins-table"><table class="q-table">
-			<thead><tr>{% if can_work %}<th><span class="visually-hidden">Select</span></th>{% endif %}<th>Deadline</th><th>Alert</th><th>Host · account</th><th>Who</th><th>Status</th><th></th></tr></thead>
+			<thead><tr>{% if can_work %}<th><input class="form-check-input" type="checkbox" data-select-all="alert_id" aria-label="Select all" /></th>{% endif %}<th>Deadline</th><th>Alert</th><th>Host · account</th><th>Who</th><th>Status</th><th></th></tr></thead>
 			<tbody>
 			{% for i in items %}{% set a = i.alert %}
 			<tr class="{{ 'is-overdue' if i.overdue }}">
