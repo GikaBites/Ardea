@@ -35,6 +35,7 @@ GROUPS = [
     ("monitoring", "Monitoring and daily digest"),
     ("reports", "Reports and branding"),
     ("nis2", "NIS2 details"),
+    ("backups", "Backups"),
 ]
 
 
@@ -257,6 +258,15 @@ FIELDS = [
           "\"Alerts to your team\".", "off",
           (("off", "Off"),) + tuple((f"{h:02d}:00", f"Every day at {h:02d}:00") for h in range(24)),
           feature="digest"),
+    # Backups (the "backup" service reads them straight from the database)
+    Field("BACKUP_ENABLED", "backups", "Back up every night", "bool",
+          "Saves the whole database and the key that opens your saved passwords into the backups folder next to "
+          "docker-compose.yml. Copy that folder to another computer or a NAS now and then.", "true",
+          services=("backup",)),
+    Field("BACKUP_TIME", "backups", "At", "choice", "In the server's time zone.", "02:00",
+          tuple((f"{h:02d}:00", f"{h:02d}:00") for h in range(24)), services=("backup",), show_if="BACKUP_ENABLED=true"),
+    Field("BACKUP_KEEP_DAYS", "backups", "Keep backups for (days)", "int", "Older backups are deleted.", "14",
+          min=1, max=365, services=("backup",), show_if="BACKUP_ENABLED=true"),
     # Reports and branding
     Field("ARDEA_REPORTS", "reports", "E-mail a management report", "choice",
           "A one-page summary: alerts handled, time saved, real attacks found.", "off",
@@ -361,6 +371,14 @@ CREATE TABLE IF NOT EXISTS incident_closures (      -- incidents closed by an an
 );
 CREATE TABLE IF NOT EXISTS incident_closed_alerts (  -- which alerts a closure covered (deleted on reopen)
     alert_id TEXT PRIMARY KEY, closure_id BIGINT NOT NULL REFERENCES incident_closures(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS backup_runs (            -- nightly and on-demand backups (the "backup" service)
+    id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'manual', status TEXT NOT NULL DEFAULT 'requested',
+    requested_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ, file TEXT, bytes BIGINT, detail TEXT
+);
+CREATE TABLE IF NOT EXISTS system_health (          -- snapshots the worker writes for the Health page
+    name TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS service_activity (    -- what the worker and the fetcher are doing now (status bar)
     service TEXT PRIMARY KEY, state TEXT NOT NULL, detail TEXT, alert_id TEXT, siem TEXT,

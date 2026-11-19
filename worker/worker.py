@@ -33,6 +33,7 @@ import reports
 import settings_tests
 import sla
 import suppress
+import sysinfo
 import siems as siem_config
 from agent import Investigation, LLMUnavailable
 from alert_context import build_context
@@ -348,6 +349,7 @@ def run_worker():
                 health.run_due(conn)             # silent-source alarm (Pro), every 15 minutes
                 digest.run_due(conn)             # daily handover digest (Pro), at DIGEST_TIME
                 sla.run_due(conn)                # overdue alerts (Pro: assignments)
+                sysinfo.run_due(conn)            # Health page snapshot; disk, backup and queue warnings
                 ask.requeue_stuck(conn)          # questions left 'running' by a stopped worker
                 last_maintenance = time.monotonic()
             HEARTBEAT.touch()

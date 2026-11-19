@@ -60,7 +60,7 @@ triaged.
 | [Integrations](#integrations): Slack, Microsoft Teams, webhook, Jira, TheHive, plus e-mail and ntfy | | ✓ | ✓ |
 | [Playbook pack](#playbook-pack): ready-made playbooks for 30 noisy Elastic prebuilt rules, updated monthly | | ✓ | ✓ |
 | [Single sign-on](#single-sign-on) through your identity provider | | ✓ | ✓ |
-| Re-triage button, CSV export, eval-case export | | ✓ | ✓ |
+| "Investigate again" button, CSV export, eval-case export | | ✓ | ✓ |
 | [Several Elastic clusters](#several-siems) with per-user SIEM access | | | ✓ |
 | [Watched hosts](#monitoring-and-handover-digest): warning when a domain controller or server stops reporting | | | ✓ |
 | [Per-customer setup](#per-customer-setup-msp): own alert routing, monthly reports, facts and playbooks per customer; settings templates applied to many customers at once | | | ✓ |
@@ -101,6 +101,22 @@ or VRAM. With a 12–16 GB GPU, `qwen3:14b` is faster. Avoid models below 8B par
 ---
 
 ## Installation
+
+### Quick install
+
+On the Linux server that will run Ardea (Docker installed, and Ollama running there or on another machine):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GikaBites/Ardea/main/install.sh | bash
+```
+
+It checks Docker, memory and disk, downloads Ardea into `./ardea`, asks four questions (the address people
+type in the browser, where Ollama runs, the model, the time zone), writes `.env` with a random database
+password, starts everything and prints the address and the first admin password. Then open **Settings → Start
+here** and add your SIEM. Running it again keeps your `.env` and only updates and restarts Ardea. Without
+questions: `ARDEA_ADDRESS=ardea.example.com LLM_URL=http://10.0.0.5:11434 LLM_MODEL=qwen3:14b ./install.sh --yes`.
+
+The steps below do the same by hand, and explain the Elastic API keys and HTTPS in detail.
 
 ### 1. Install Ollama and pull the model
 
@@ -320,8 +336,9 @@ What stays in `.env`: database credentials, the HTTPS address and certificate, s
 web UI session limits and demo mode. A value set in `.env` always wins and appears read-only on the Settings page;
 remove it from `.env` to manage it there.
 
-**Back up the `settings_keys` volume** together with the database. Without it, the worker creates a new key and the
-Settings page asks you to enter the saved keys and passwords again (nothing else is lost).
+**Backups** include the `settings_keys` volume automatically (see [Backups and system health](#backups-and-system-health)).
+Without that key, the worker creates a new one and the Settings page asks you to enter the saved keys and
+passwords again (nothing else is lost).
 
 ### 7. Tune it for your environment
 
@@ -835,6 +852,33 @@ investigation is finished. It never investigates alerts. If it is not running, t
 tasks between alerts as before. Both use the same Ollama: start Ollama with `OLLAMA_NUM_PARALLEL=2` (it needs
 more memory) to answer a question while an alert is being investigated; otherwise the question waits only for
 the investigation's current model step.
+
+---
+
+## Backups and system health
+
+**Backups.** The `backup` service saves the whole database and the key that opens saved passwords every night
+at 02:00 into the `backups` folder next to `docker-compose.yml`, and deletes backups older than 14 days. Change
+the time and the number of days, or press **Back up now**, under *Settings → Backups*, which also lists every
+backup and whether it worked. A backup on the same disk does not survive a broken disk: copy the `backups`
+folder to another machine or a NAS now and then (for example with a nightly `rsync`).
+
+To go back to a backup (everything stored after it is lost):
+
+```bash
+./backup/restore.sh backups/ardea-2026-11-20_0200.dump
+```
+
+It asks for confirmation, stops Ardea, replaces the database (and the settings key, from the `.keys.tgz` file
+next to the dump), and starts Ardea again.
+
+**System health** (*Settings → System health*, admins) shows on one page whether the worker, the fetcher and the
+second worker are running, whether Ollama answers and which model it has loaded (and how much of it is on the
+graphics card), how many alerts are waiting and how many hours of work that is, free disk space, the database
+size and the last backup. The worker updates it every 5 minutes and warns your team through *Alerts to your
+team*, at most once a day per problem, when the disk is nearly full (under 10% or 5 GB free), the last backup
+failed or is more than 36 hours old, or more than 8 hours of work is waiting. The same problems appear on
+*Settings → Start here*.
 
 ---
 

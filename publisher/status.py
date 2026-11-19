@@ -83,8 +83,24 @@ def _fetcher(row, now):
     return f
 
 
+def _demo() -> dict:
+    """Demo mode has no worker or fetcher: show what a busy afternoon looks like, moving every few seconds."""
+    s = int(datetime.now(timezone.utc).timestamp()) % 240
+    return {"worker": {"state": "investigating", "level": "ok", "text": "Suspicious Windows Powershell Arguments on srv-app-02",
+                       "phase": ("reading the process tree", "checking what is normal", "searching the host's events",
+                                 "thinking")[s // 60], "step": 1 + s // 40, "max_steps": 8, "since": s,
+                       "progress": min(0.95, s / 260)},
+            "fetcher": {"state": "idle", "level": "ok", "text": "2 new alerts in the last collection",
+                        "next_in": 180 - s % 180, "progress": (s % 180) / 180},
+            "queue": {"waiting": 3, "ready": 3, "later": 0, "processing": 1, "oldest": 420, "eta_minutes": 9},
+            "tasks": {"state": "idle", "text": "Waiting for settings tests and questions"}}
+
+
 def snapshot(user, can_see) -> dict:
     """{'worker': {...}, 'fetcher': {...}, 'queue': {...}} for this user. can_see(siem_id) -> bool."""
+    import demo
+    if demo.ENABLED:
+        return _demo()
     now = datetime.now(timezone.utc)
     restricted = not (user["role"] == "admin" or user.get("siem_access") is None)
     scope = list(user.get("siem_access") or []) if restricted else None

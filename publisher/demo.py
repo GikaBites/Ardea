@@ -3,6 +3,7 @@
 ARDEA_DEMO=true (set by docker-compose.demo.yml). On first start, into an EMPTY database only, this adds:
   * two sample SIEMs, about eight weeks of sample alerts with verdicts, and five worked investigations
     with a full trail (a true positive, a guardrail stop, a prompt-injection stop, an adversarial review)
+  * the queue, a closed incident, a suppression, an answered question, backups and the Health page
   * the user demo / demo (admin)
 Every page shows a banner saying the data is sample data, and all paid features are switched on.
 Never set ARDEA_DEMO on a real installation: it never touches a database that already holds alerts,
@@ -325,6 +326,92 @@ def _showcase(sd):
         sd.alert("hq", rule, rid, host, "mpapas", exe, parent, ts, res)
 
 
+def _burst_and_suppressed(sd):
+    """A burst handled in seconds, and an alert closed by a suppression (tags on the Alerts page)."""
+    rule, rid = "Multiple Remote Management Tool Vendors on Same Host", "5b9e1c4a"
+    exe, parent = r"C:\Program Files\RMM\agent.exe", r"C:\Windows\System32\services.exe"
+    summary = ("The managed-service RMM agent and the vendor's remote support tool run side by side on this "
+               "computer, as on every computer IT manages; both are signed and have run daily for months.")
+    ids = []
+    for i, host in enumerate(("ws-fin-02", "ws-fin-05", "ws-hr-03")):
+        ts = sd.now - timedelta(hours=3, minutes=40 - i * 3)
+        res = _result("", rule, host, "Benign Positive", "Low", 86, summary, "Command and Control", 5,
+                      ["get_baseline", "get_process_tree"], 160_000)
+        ids.append(sd.alert("hq", rule, rid, host, "SYSTEM", exe, parent, ts, res))
+    for i, host in enumerate(("ws-fin-09", "ws-ops-01", "ws-ops-04", "ws-sales-02")):
+        ts = sd.now - timedelta(hours=3, minutes=25 - i)
+        res = _result("", rule, host, "Benign Positive", "Low", 86,
+                      "Part of a burst: the same rule, program and parent program were investigated 3 times in the "
+                      "last hours and every time the verdict was Benign Positive, so it was reused without a new "
+                      "investigation. Earlier finding: " + summary, "Command and Control", 0, [], 0, findings=[])
+        res["investigation"].update(stop_reason="flood_reused", reused_from=ids, tool_calls=0,
+                                    guardrails_applied=["flood guard: same verdict on 3 investigated alerts of this pattern"])
+        sd.alert("hq", rule, rid, host, "SYSTEM", exe, parent, ts, res)
+    rule, rid, host, user, exe, parent, _v, tactic, _s = ROUTINE[2]
+    res = _result("", rule, host, "Benign Positive", "Low", 100,
+                  "Closed by suppression #1 without an investigation: Helpdesk checks who is signed in during "
+                  "support calls. (created by demo)", tactic, 0, [], 0, findings=[])
+    res["investigation"].update(stop_reason="suppressed", suppression_id=1, tool_calls=0)
+    sd.alert("hq", rule, rid, host, user, exe, parent, sd.now - timedelta(hours=5), res)
+
+
+def _extras(c, now):
+    """The newer features, so every page has something to show: the queue, a closed incident, a suppression,
+    an answered question, backups and the Health page."""
+    import appsettings
+    appsettings.ensure_schema(lambda q: c.exec_driver_sql(q))
+    q = lambda sql, **kw: c.execute(text(sql), kw)                       # noqa: E731
+    # Queue: the newest reviews and true positives, one in progress, one resolved, the rest unassigned.
+    need = q("""SELECT a.alert_id, t.verdict FROM alerts a JOIN triage_results t USING (alert_id)
+                WHERE t.verdict IN ('True Positive', 'Needs Human Review') ORDER BY a.timestamp DESC LIMIT 6""").fetchall()
+    for i, (aid, _verdict) in enumerate(need):
+        if i == 0:
+            q("INSERT INTO alert_work (alert_id, assignee, status, updated_by) VALUES (:a, 'demo', 'in_progress', 'demo')", a=aid)
+            q("INSERT INTO alert_work_log (alert_id, actor, action) VALUES (:a, 'demo', 'started work')", a=aid)
+        elif i == 3:
+            q("""INSERT INTO alert_work (alert_id, assignee, status, note, updated_by, resolved_at)
+                 VALUES (:a, 'demo', 'resolved', 'Checked with IT: monitoring agent rollout.', 'demo', NOW())""", a=aid)
+            q("INSERT INTO alert_work_log (alert_id, actor, action) VALUES (:a, 'demo', "
+              "'resolved: Checked with IT: monitoring agent rollout.')", a=aid)
+    # An older true positive incident, closed by an analyst.
+    old = q("""SELECT a.alert_id FROM alerts a JOIN triage_results t USING (alert_id)
+               WHERE a.rule_name = 'Suspicious MS Office Child Process' AND a.timestamp < :t
+               ORDER BY a.timestamp DESC LIMIT 1""", t=now - timedelta(days=3)).fetchone()
+    if old:
+        cid = q("""INSERT INTO incident_closures (incident_id, outcome, note, closed_by, closed_at)
+                   VALUES ('demo', 'resolved', 'Host re-imaged, password reset, sender blocked at the mail gateway.',
+                           'demo', :t) RETURNING id""", t=now - timedelta(days=5)).scalar()
+        q("INSERT INTO incident_closed_alerts (alert_id, closure_id) VALUES (:a, :c)", a=old[0], c=cid)
+    # A suppression the analysts created from their feedback.
+    rule, _rid, _host, user, exe, parent, _v, _t, _s = ROUTINE[2]
+    q("""INSERT INTO suppressions (siem, rule_name, process_executable, parent_executable, user_name, verdict, reason,
+                                   created_by, created_at, expires_at, hits, last_hit_at)
+         VALUES ('hq', :r, :x, :p, :u, 'Benign Positive', 'Helpdesk checks who is signed in during support calls.',
+                 'demo', :c, :e, 37, :l)""",
+      r=rule, x=exe, p=parent, u=user, c=now - timedelta(days=20), e=now + timedelta(days=70), l=now - timedelta(hours=5))
+    # An answered question on the real attack.
+    tp = q("""SELECT a.alert_id FROM alerts a WHERE a.rule_name = 'Suspicious MS Office Child Process'
+              ORDER BY a.timestamp DESC LIMIT 1""").fetchone()
+    if tp:
+        q("""INSERT INTO alert_questions (alert_id, asked_by, question, status, answer, cited, steps, created_at, finished_at)
+             VALUES (:a, 'demo', 'Did mpapas sign in anywhere else after this?', 'done',
+                     'Yes. Nine minutes later mpapas logged on to srv-file-01 over the network (Q1), the first such '
+                     'logon in 30 days (Q2). That matches the later alert "Remote Logon with Explicit Credentials".',
+                     '["Q1", "Q2"]', '[{"evidence": [{"id": "Q1", "tool": "get_auth_events"}, {"id": "Q2", "tool": "get_baseline"}]}]',
+                     :c, :f)""", a=tp[0], c=now - timedelta(minutes=10), f=now - timedelta(minutes=9))
+    # Backups and the Health page.
+    for d in range(7, 0, -1):
+        t = (now - timedelta(days=d)).replace(hour=2, minute=0, second=0)
+        q("""INSERT INTO backup_runs (kind, status, created_at, started_at, finished_at, file, bytes, detail)
+             VALUES ('scheduled', 'ok', :t, :t, :f, :n, :b, 'Database and the settings key saved.')""",
+          t=t, f=t + timedelta(seconds=41), n=f"ardea-{t:%Y-%m-%d}_0200.dump", b=48_000_000 + d * 210_000)
+    for name, value in (("ollama", {"reachable": True, "url_host": "ollama:11434", "model": MODEL, "version": "0.12",
+                                    "loaded": [{"name": "qwen3:14b", "size": 10_800_000_000, "vram": 10_800_000_000}]}),
+                        ("disk", {"total": 512 * 2 ** 30, "free": 301 * 2 ** 30, "free_percent": 58.8}),
+                        ("database", {"b": 61_000_000}), ("problems", [])):
+        q("INSERT INTO system_health (name, value) VALUES (:n, CAST(:v AS jsonb))", n=name, v=json.dumps(value))
+
+
 def seed(engine):
     """Fill an empty database with demo data. Safe with several gunicorn workers."""
     if not ENABLED:
@@ -346,4 +433,6 @@ def seed(engine):
         sd = _Seeder(c, datetime.now(timezone.utc).replace(microsecond=0))
         _routine(sd, random.Random(7))
         _showcase(sd)
+        _burst_and_suppressed(sd)
+        _extras(c, sd.now)
     log.warning("Demo mode: added %s sample alerts. Sign in at https://localhost:8443 as demo / demo.", sd.n)

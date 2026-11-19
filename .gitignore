@@ -8,3 +8,6 @@ alert_example.json
 siems/siems.json
 siems/*.crt
 siems/*.pem
+
+# Backups (database and settings key: secrets)
+backups/

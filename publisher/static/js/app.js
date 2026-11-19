@@ -129,6 +129,28 @@
 			body.appendChild(el("div", "ar-warning",
 				"The alert contains text that tried to manipulate the triage model. Treat with extra care."));
 		}
+		if (d.how === "burst") {
+			const note = el("div", "ar-note");
+			note.appendChild(el("strong", "", "Not investigated on its own. "));
+			note.appendChild(document.createTextNode("This alert is part of a burst: the same rule, program and parent " +
+				"program were investigated several times with the same verdict, so that verdict was reused. " +
+				"The evidence is in the investigated alerts: "));
+			for (const id of d.reused_from || []) {
+				const a = el("a", "ar-note__link", id.split(":").pop().slice(0, 10));
+				a.href = `/?q=${encodeURIComponent(id)}`;
+				note.appendChild(a);
+			}
+			note.appendChild(document.createTextNode(" Disagree? Mark it below: the next alerts of this burst are then investigated again."));
+			body.appendChild(note);
+		} else if (d.how === "suppressed") {
+			const note = el("div", "ar-note");
+			note.appendChild(el("strong", "", "Closed by a suppression. "));
+			note.appendChild(document.createTextNode("Your team said this pattern is safe, so it was not investigated. "));
+			const a = el("a", "ar-note__link", d.suppression_id ? `Suppression #${d.suppression_id}` : "Suppressions");
+			a.href = `/insights/suppressions${d.suppression_id ? "#s" + d.suppression_id : ""}`;
+			note.appendChild(a);
+			body.appendChild(note);
+		}
 		if (d.summary) body.appendChild(section("Summary", el("p", "ar-summary-full", d.summary)));
 
 		const grid = el("div", "ar-grid");
@@ -179,21 +201,32 @@
 		if (d.guardrails?.length) {
 			body.appendChild(section("Safety checks applied", bulletList(d.guardrails, (g) => el("li", "ar-muted", g))));
 		}
+		if (state.canFeedback) body.appendChild(buildFeedback(alert));
 
 		const footer = el("div", "ar-alert__footer");
+		const actions = el("div", "ar-alert__actions");
 		if (alert.post_url) {
 			const a = el("a", "ar-button", state.multiSiem && alert.siem_name
 				? `Open in Kibana (${alert.siem_name})` : "Open in Kibana");
 			a.href = alert.post_url;
 			a.target = "_blank";
 			a.rel = "noopener noreferrer";
-			footer.appendChild(a);
+			actions.appendChild(a);
 		}
 		if (alert.incident) {                       // Pro: this alert is part of a larger incident
 			const inc = el("a", "ar-button ar-button--incident", `Part of an incident: ${alert.incident[1]} alerts`);
 			inc.href = `/incidents/${encodeURIComponent(alert.incident[0])}`;
-			footer.appendChild(inc);
+			actions.appendChild(inc);
 		}
+		if (state.canRetriage) {
+			const btn = el("button", "ar-button", "Investigate again");
+			btn.type = "button";
+			btn.title = "Run a new investigation of this alert with the current model and settings";
+			btn.dataset.retriage = alert.alert_id;
+			actions.appendChild(btn);
+			actions.appendChild(el("span", "ar-feedback__status"));
+		}
+		if (actions.childElementCount) body.appendChild(actions);
 		const idTag = el("button", "ar-id", `ID ${alert.alert_id.slice(0, 12)}…`);
 		idTag.type = "button";
 		idTag.title = "Copy the full alert ID";
@@ -229,16 +262,6 @@
 			askBody.appendChild(el("div", "ar-ask__list"));
 			ask.appendChild(askBody);
 			body.appendChild(ask);
-		}
-		if (state.canFeedback) body.appendChild(buildFeedback(alert));
-		if (state.canRetriage) {
-			const re = el("div", "ar-retriage");
-			const btn = el("button", "ar-button", "Re-triage this alert");
-			btn.type = "button";
-			btn.dataset.retriage = alert.alert_id;
-			re.appendChild(btn);
-			re.appendChild(el("span", "ar-feedback__status"));
-			body.appendChild(re);
 		}
 		return body;
 	}
@@ -282,6 +305,13 @@
 			const siem = el("span", "ar-siem", alert.siem_name);
 			siem.title = `SIEM: ${alert.siem_name}`;
 			title.appendChild(siem);
+		}
+		const how = alert.detail?.how;
+		if (how) {
+			const tag = el("span", `ar-how ar-how--${how}`, how === "burst" ? "Burst: verdict reused" : "Suppressed");
+			tag.title = how === "burst" ? "Part of a burst: the verdict of identical, investigated alerts was reused"
+				: "Closed by a suppression your team created, without an investigation";
+			title.appendChild(tag);
 		}
 		main.appendChild(title);
 		if (alert.detail?.summary) main.appendChild(el("p", "ar-alert__summary", alert.detail.summary));

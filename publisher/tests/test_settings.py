@@ -412,3 +412,20 @@ def test_start_here_and_password_check_and_values_kept(key):
     analyst = login("set.analyst")
     assert analyst.post("/admin/settings/confirm-password", base_url=BASE, json={"password": PASSWORD},
                         headers={"Origin": BASE, "X-CSRF-Token": analyst.csrf}).status_code == 403
+
+
+def test_health_page_and_backup_now(key):
+    c = login("set.admin")
+    html = c.get("/admin/settings/health", base_url=BASE).get_data(as_text=True)
+    assert "System health" in html and "Services" in html and "No report yet" in html
+    r = post(c, "/admin/settings/backups/run")
+    assert r.status_code == 303 and "Backup+requested" in r.headers["Location"]
+    with get_connection() as conn:
+        assert conn.execute("SELECT status, requested_by FROM backup_runs ORDER BY id DESC LIMIT 1").fetchone() == \
+            {"status": "requested", "requested_by": "set.admin"}
+    r = post(c, "/admin/settings/backups/run")
+    assert "already" in r.headers["Location"]
+    html = c.get("/admin/settings/backups", base_url=BASE).get_data(as_text=True)
+    assert "A backup is on its way" in html and "restore.sh" in html and "Back up every night" in html
+    assert "Backups" in c.get("/admin/settings/overview", base_url=BASE).get_data(as_text=True)
+    assert login("set.analyst").get("/admin/settings/health", base_url=BASE).status_code == 403

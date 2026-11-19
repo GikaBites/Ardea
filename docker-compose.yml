@@ -168,6 +168,26 @@ services:
     environment:
       <<: *worker-env
       WORKER_ROLE: tasks
+
+  # Nightly backup of the database and the Settings page key into ./backups (Settings -> Backups).
+  # Restore: ./backup/restore.sh backups/ardea-<date>.dump
+  backup:
+    image: postgres:16-alpine
+    container_name: Ardea_backup
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    environment:
+      <<: *db-env
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-}
+      BACKUP_TIME: ${BACKUP_TIME:-}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-}
+    volumes:
+      - ./backup/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+      - settings_keys:/keys              # copied into each backup; written only by restore.sh
+    depends_on: { db: { condition: service_healthy } }
+    networks: [internal]
+    logging: *logging
   publisher:
     build: ./publisher
     container_name: Ardea_publisher

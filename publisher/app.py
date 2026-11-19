@@ -643,6 +643,10 @@ def _detail(result):
         "tool_calls": inv.get("tool_calls"),
         "duration_ms": inv.get("duration_ms"),
         "model": str(inv.get("model") or "")[:80],
+        # how the verdict was reached when it was not a full investigation
+        "how": {"suppressed": "suppressed", "flood_reused": "burst"}.get(inv.get("stop_reason")),
+        "suppression_id": inv.get("suppression_id"),
+        "reused_from": [str(x)[:200] for x in (inv.get("reused_from") or [])[:5]],
     }
 
 

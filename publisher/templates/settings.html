@@ -83,7 +83,7 @@
 		<p class="set-purpose">{{ info[group][1] }}</p>
 	</header>
 
-	{% if not has_key %}
+	{% if not has_key and not demo_mode %}
 	<div class="alert alert-warning py-2">Passwords and keys cannot be saved yet, because the worker has not started with this version. Start it (<code>docker compose up -d</code>), wait a minute and reload this page.</div>
 	{% endif %}
 	{% if error %}<div class="alert alert-danger py-2" role="alert"><strong>Nothing was saved.</strong> {{ error }} Your changes are still in the form below: fix this and save again.</div>{% endif %}
@@ -102,6 +102,56 @@
 		{% endfor %}
 	</ol>
 	<p class="set-help">The first four are what Ardea needs to work: a licence (or the free edition), a SIEM to read alerts from, an AI model, and a way to tell your team. Everything else is optional and can wait.</p>
+
+	{# ================================================================ SYSTEM HEALTH #}
+	{% elif group == "health" %}
+	{% set h = health %}
+	{% if h.problems %}
+	<div class="alert alert-warning py-2" role="alert"><strong>Needs attention:</strong>{% for p in h.problems %}<br>{{ p.text }}{% endfor %}</div>
+	{% elif h.snapshot_at %}
+	<div class="alert alert-success py-2">Nothing needs attention.</div>
+	{% endif %}
+	<div class="set-health">
+		<section class="card shadow-sm"><div class="card-body">
+			<h2 class="h6">Services</h2>
+			<ul class="set-svc">
+			{% for s in h.services %}
+			<li class="{{ 'is-ok' if s.ok else ('is-opt' if s.optional and s.missing else 'is-bad') }}"><span class="set-svc__dot"></span><div><strong>{{ s.title }}</strong> <span class="set-help d-inline">{{ s.what }}</span><br><span class="small">{{ s.text }}{% if s.age is not none %} · reported {{ (s.age // 60) ~ " min" if s.age >= 60 else s.age ~ " s" }} ago{% endif %}</span></div></li>
+			{% endfor %}
+			</ul>
+		</div></section>
+		<section class="card shadow-sm"><div class="card-body">
+			<h2 class="h6">AI model (Ollama)</h2>
+			{% set o = h.ollama %}
+			{% if not o %}<p class="set-help mb-0">No report yet: the worker writes one every 5 minutes.</p>
+			{% elif not o.reachable %}<p class="set-problem mb-0">Ollama at {{ o.url_host }} cannot be reached ({{ o.error }}). Alerts wait until it is back.</p>
+			{% else %}
+			<p class="mb-1">Reachable at <code>{{ o.url_host }}</code>{% if o.version %}, version {{ o.version }}{% endif %}. Ardea uses <code>{{ o.model }}</code>.</p>
+			{% if o.loaded %}{% for m in o.loaded %}<p class="small mb-0">Loaded: <code>{{ m.name }}</code>, {{ "%.1f" | format((m.size or 0) / 1073741824) }} GB{% if m.vram %}, {{ (100 * m.vram / (m.size or 1)) | round | int }}% on the graphics card{% else %}, on the CPU{% endif %}</p>{% endfor %}
+			{% else %}<p class="small mb-0 set-help">No model is loaded right now: the next alert loads it (that takes a minute).</p>{% endif %}
+			{% endif %}
+		</div></section>
+		<section class="card shadow-sm"><div class="card-body">
+			<h2 class="h6">Work waiting</h2>
+			<p class="mb-1"><b>{{ h.queue.waiting }}</b> alert{{ 's' if h.queue.waiting != 1 }} waiting{% if h.queue.hours is not none and h.queue.waiting %}: about {{ h.queue.hours }} hours of work{% endif %}.</p>
+			{% if h.queue.minutes_per_alert %}<p class="small mb-0 set-help">One alert takes about {{ h.queue.minutes_per_alert | round(1) }} minutes (last 20).</p>{% endif %}
+			{% if h.queue.failed %}<p class="small mb-0 set-problem">{{ h.queue.failed }} alert{{ 's' if h.queue.failed != 1 }} failed in the last 7 days: they show a "could not investigate" verdict on the Alerts page.</p>{% endif %}
+		</div></section>
+		<section class="card shadow-sm"><div class="card-body">
+			<h2 class="h6">Disk and database</h2>
+			{% if h.disk %}<p class="mb-1">{{ "%.1f" | format(h.disk.free / 1073741824) }} GB free of {{ "%.0f" | format(h.disk.total / 1073741824) }} GB ({{ h.disk.free_percent }}%).</p>
+			<div class="set-meter"><i style="width: {{ 100 - h.disk.free_percent }}%"></i></div>{% else %}<p class="set-help">No report yet.</p>{% endif %}
+			{% if h.database %}<p class="small mb-0 mt-2">The database uses {{ "%.1f" | format(h.database / 1048576) }} MB.</p>{% endif %}
+		</div></section>
+		<section class="card shadow-sm"><div class="card-body">
+			<h2 class="h6">Backups</h2>
+			{% set b = h.backups %}
+			{% if b.last_ok %}<p class="mb-1">Last backup {{ b.last_ok.finished_at | localtime }} ({{ "%.1f" | format((b.last_ok.bytes or 0) / 1048576) }} MB).</p>
+			{% else %}<p class="mb-1 set-problem">No backup yet.</p>{% endif %}
+			<a class="btn btn-outline-light btn-sm" href="/admin/settings/backups">Backups</a>
+		</div></section>
+	</div>
+	<p class="set-help">Updated {{ h.snapshot_at | localtime if h.snapshot_at else "when the worker next reports" }}. Ardea warns your team (through "Alerts to your team") at most once a day when the disk is nearly full, a backup fails or is missing, or more than 8 hours of work is waiting.</p>
 
 	{# ================================================================ CHANGE LOG #}
 	{% elif group == "audit" %}
@@ -405,6 +455,33 @@
 		</div>
 	</details>
 	{% endif %}
+	{% endif %}
+
+	{% if group == "backups" %}
+	{% set b = backups %}
+	<div class="card shadow-sm"><div class="card-body">
+		<div class="set-actions mt-0">
+			<form method="post" action="/admin/settings/backups/run" class="d-inline"><input type="hidden" name="csrf_token" value="{{ g.user.csrf_token }}" /><button class="btn btn-primary btn-sm" {% if b.pending %}disabled{% endif %}>{{ "A backup is on its way…" if b.pending else "Back up now" }}</button></form>
+			{% if b.last_ok %}<span class="set-ok">Last backup {{ b.last_ok.finished_at | localtime }}: {{ b.last_ok.file }} ({{ "%.1f" | format((b.last_ok.bytes or 0) / 1048576) }} MB)</span>{% else %}<span class="set-problem">No backup yet.</span>{% endif %}
+		</div>
+		{% if b.runs %}
+		<table class="table table-sm set-table mt-3 mb-0">
+			<thead><tr><th>When</th><th>How</th><th>Result</th></tr></thead>
+			<tbody>{% for r in b.runs %}<tr><td class="ins-nowrap">{{ (r.finished_at or r.started_at or r.created_at) | localtime }}</td><td>{{ "Every night" if r.kind == "scheduled" else "By " ~ (r.requested_by or "an admin") }}</td>
+				<td class="small">{% if r.status == "ok" %}<span class="set-ok">Saved</span> {{ r.file }} · {{ "%.1f" | format((r.bytes or 0) / 1048576) }} MB · {{ r.detail }}{% elif r.status == "failed" %}<span class="set-problem">Failed: {{ r.detail }}</span>{% elif r.status == "running" %}Running…{% else %}Waiting for the backup service…{% endif %}</td></tr>{% endfor %}</tbody>
+		</table>
+		{% endif %}
+		{% if b.pending and not b.last_ok %}<p class="set-help mt-2 mb-0">Nothing happens? The backup service is not running: on the server, run <code>docker compose up -d</code>.</p>{% endif %}
+	</div></div>
+	<details class="card shadow-sm">
+		<summary class="card-body py-2">How to restore a backup</summary>
+		<div class="card-body pt-0 small">
+			<p>Backups are in the <code>backups</code> folder next to <code>docker-compose.yml</code> on the server: one <code>.dump</code> file (the database) and one <code>.keys.tgz</code> file (the key that opens saved passwords) per backup. Copy that folder somewhere else now and then: a backup on the same disk does not survive a broken disk.</p>
+			<p class="mb-1">To go back to a backup (everything after it is lost), on the server:</p>
+			<pre class="mb-0"><code>cd ~/Ardea
+./backup/restore.sh backups/ardea-2026-11-20_0200.dump</code></pre>
+		</div>
+	</details>
 	{% endif %}
 
 	<form method="post" action="/admin/settings/{{ group }}" class="set-form" {% if group == "reports" %}enctype="multipart/form-data"{% endif %} autocomplete="off" {% if group == "licence" %}data-password="always"{% else %}data-password="sensitive"{% endif %}>

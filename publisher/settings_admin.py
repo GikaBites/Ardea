@@ -22,7 +22,8 @@ bp = Blueprint("settings", __name__)
 GROUP_NAMES = dict(A.GROUPS)
 # The Settings page menu: the four things everyone sets up, then what is optional.
 MENU = [("Set up", ["licence", "siems", "ai", "notifications"]),
-        ("Optional", ["triage", "websearch", "playbooks", "deadlines", "monitoring", "reports", "nis2"])]
+        ("Optional", ["triage", "websearch", "playbooks", "deadlines", "monitoring", "reports", "nis2"]),
+        ("Keep it running", ["health", "backups"])]
 # Each section: what it is for, and whether you need it. Shown at the top of the section.
 GROUP_INFO = {
     "overview": ("Start here", "What is set up, what is missing, and what to do next."),
@@ -46,6 +47,9 @@ GROUP_INFO = {
     "reports": ("Reports and branding", "Optional. A management report by e-mail, and your own name and logo."),
     "nis2": ("NIS2 details", "Optional, Pro and MSP. Your organisation's details, filled into NIS2 report drafts."),
     "audit": ("Change log", "Who changed which setting, and when. Values are never recorded."),
+    "health": ("System health", "Is everything running, and is anything about to go wrong? Updated every 5 minutes."),
+    "backups": ("Backups", "A copy of everything, every night. Recommended: without a backup, a broken disk "
+                "loses all verdicts, feedback and settings."),
 }
 CHANNEL_FIELDS = {"smtp": ["SMTP_HOST", "SMTP_PORT", "SMTP_SECURITY", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
                            "SMTP_TO"],
@@ -862,11 +866,74 @@ def _overview(conn, snap) -> list[dict]:
                  ("done" if rep != "off" else "optional"),
                  "detail": ({"weekly": "Every Monday.", "monthly": "On the 1st of every month."}.get(rep, "Off."))
                  if editions.has("reports") else "Comes with Pro and MSP."})
+    b = _backups(conn)
+    last = b["runs"][0] if b["runs"] else None
+    if (_setting(snap, "BACKUP_ENABLED") or "true") != "true":
+        st, detail = "todo", "Nightly backups are switched off."
+    elif last and last["status"] == "failed":
+        st, detail = "problem", f"The last backup failed: {last['detail'] or 'see the backup service log'}."
+    elif b["last_ok"]:
+        st, detail = "done", f"Last backup {b['last_ok']['finished_at'].astimezone():%d/%m %H:%M}."
+    else:
+        st, detail = "todo", ("No backup yet. The first one runs tonight, or press \"Back up now\". (Needs the "
+                              "backup service: docker compose up -d.)")
+    rows.append({"key": "backups", "title": "Backups", "state": st, "detail": detail})
+    sh = conn.execute("SELECT value FROM system_health WHERE name = 'problems'").fetchone()
+    for p_ in (sh["value"] if sh else []) or []:
+        rows.append({"key": "health", "title": "System health", "state": "problem", "detail": p_["text"]})
     for name, problem in snap["problems"].items():
         f = A.BY_NAME.get(name)
         if f is not None:
             rows.append({"key": f.group, "title": f.label, "state": "problem", "detail": f"Enter it again: {problem}."})
     return rows
+
+
+def _backups(conn) -> dict:
+    if not conn.execute("SELECT to_regclass('public.backup_runs') AS t").fetchone()["t"]:
+        return {"runs": [], "last_ok": None, "pending": False}
+    runs = conn.execute("SELECT * FROM backup_runs ORDER BY id DESC LIMIT 15").fetchall()
+    return {"runs": runs, "last_ok": next((r for r in runs if r["status"] == "ok"), None),
+            "pending": any(r["status"] in ("requested", "running") for r in runs)}
+
+
+def _health(conn, snap) -> dict:
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    sh = {r["name"]: r for r in conn.execute("SELECT name, value, updated_at FROM system_health").fetchall()}
+    act = {r["service"]: r for r in conn.execute("SELECT * FROM service_activity").fetchall()}
+
+    def age(t):
+        return int((now - t).total_seconds()) if t else None
+    import demo
+    if demo.ENABLED:                                   # no worker or fetcher in the demo: show them running
+        act = {s: {"state": "idle", "detail": d, "updated_at": now, "siem": None}
+               for s, d in (("worker", "Investigating alerts"), ("fetcher", "2 new alerts in the last collection"),
+                            ("worker-tasks", "Waiting for settings tests and questions"))}
+    services = []
+    for svc, title, what in (("worker", "Worker", "investigates alerts"), ("fetcher", "Fetcher", "collects alerts"),
+                             ("worker-tasks", "Second worker", "settings tests and questions")):
+        r = act.get(svc)
+        a = age(r["updated_at"]) if r else None
+        limit = 900 if svc == "fetcher" else 300
+        busy = r is not None and r["state"] in ("investigating", "answering", "collecting")
+        ok = r is not None and (busy or a < limit) and r["state"] not in ("blocked", "error")
+        services.append({"title": title, "what": what, "ok": ok, "missing": r is None,
+                         "text": (r["detail"] if r else "Not running (or an older version).") if svc != "worker-tasks"
+                         or r else "Not running: the worker does these tasks between alerts.",
+                         "age": a, "optional": svc == "worker-tasks"})
+    q = conn.execute("""SELECT count(*) FILTER (WHERE status IN ('new', 'retry')) AS waiting,
+                               count(*) FILTER (WHERE status = 'failed' AND inserted_at > NOW() - interval '7 days') AS failed
+                        FROM alerts""").fetchone()
+    avg = conn.execute("""SELECT avg(duration_ms) AS ms, count(*) AS n FROM (SELECT duration_ms FROM triage_results
+                          WHERE duration_ms > 0 AND model IS NOT NULL ORDER BY created_at DESC LIMIT 20) t""").fetchone()
+    per = float(avg["ms"]) / 60000 if avg and avg["ms"] else None
+    return {"services": services, "ollama": (sh.get("ollama") or {}).get("value"),
+            "ollama_at": (sh.get("ollama") or {}).get("updated_at"), "disk": (sh.get("disk") or {}).get("value"),
+            "database": ((sh.get("database") or {}).get("value") or {}).get("b"),
+            "problems": (sh.get("problems") or {}).get("value") or [], "snapshot_at": (sh.get("disk") or {}).get("updated_at"),
+            "queue": {"waiting": q["waiting"], "failed": q["failed"], "minutes_per_alert": per,
+                      "hours": round(q["waiting"] * per / 60, 1) if per else None},
+            "backups": _backups(conn)}
 
 
 def _posted(st, form):
@@ -888,6 +955,8 @@ def _render(group, status=200, error=None, notes=None, edit=None, form=None, tem
     with _conn() as conn:
         snap = _snapshot(conn)
         overview = _overview(conn, snap) if group == "overview" else []
+        health = _health(conn, snap) if group == "health" else None
+        backups = _backups(conn) if group == "backups" else None
         leftovers = leftover_siems(conn, snap) if group == "siems" else []
         audit = conn.execute("""SELECT at, actor, name, action FROM settings_audit
                                 ORDER BY id DESC LIMIT 40""").fetchall() if group == "audit" else []
@@ -923,7 +992,7 @@ def _render(group, status=200, error=None, notes=None, edit=None, form=None, tem
     logo = snap["rows"].get(A.BRAND_LOGO_KEY)
     return render_template(
         "settings.html", group=group, groups=A.GROUPS + [("audit", "Change log")], fields=fields,
-        menu=MENU, info=GROUP_INFO, overview=overview, channel_fields=CHANNEL_FIELDS, channel_info=CHANNEL_INFO,
+        menu=MENU, info=GROUP_INFO, overview=overview, health=health, backups=backups, channel_fields=CHANNEL_FIELDS, channel_info=CHANNEL_INFO,
         fields_by_name={st["f"].name: st for st in fields},
         siems=siems, edit=edit, ev=ev, packs=packs, templates=templates, template=template, tv=tv,
         leftovers=leftovers, can_templates=editions.has("templates"), can_integrations=editions.has("integrations"), pack_feature=editions.has("playbook_pack"),
@@ -961,10 +1030,24 @@ def confirm_password():
     return jsonify(ok=ok), (200 if ok else 403)
 
 
+@bp.post("/admin/settings/backups/run")
+def backup_now():
+    _admin()
+    with _conn() as conn:
+        if _backups(conn)["pending"]:
+            return redirect(url_for("settings.settings_page", group="backups", note="A backup is already on its way."),
+                            code=303)
+        conn.execute("INSERT INTO backup_runs (kind, status, requested_by) VALUES ('manual', 'requested', %s)",
+                     (g.user["username"],))
+        _audit(conn, g.user["username"], _main()._client_ip(), "backup", "backup requested")
+    return redirect(url_for("settings.settings_page", group="backups",
+                            note="Backup requested. It starts within a minute; reload this page to see it."), code=303)
+
+
 @bp.get("/admin/settings/<group>")
 def settings_page(group):
     _admin()
-    if group not in GROUP_NAMES and group not in ("audit", "overview"):
+    if group not in GROUP_NAMES and group not in ("audit", "overview", "health"):
         abort(404)
     edit = request.args.get("edit")
     error = ("That was too large, so nothing was saved. A logo can be up to 200 KB, a playbook pack 2 MB; other "
