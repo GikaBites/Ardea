@@ -395,7 +395,7 @@ USER_MESSAGES = {"siems": "SIEM access updated; the user was signed out.", "role
 
 
 def _users_page(status=200, error=None, secret=None, message=None):
-    return render_template("users.html", users=auth.list_users(), events=auth.recent_events(),
+    return render_template("users.html", feature_labels=editions.LABELS, users=auth.list_users(), events=auth.recent_events(),
                            roles=auth.ROLES, error=error, secret=secret, siems=load_siems(),
                            license=_license_view(),
                            message=message or USER_MESSAGES.get(request.args.get("done", ""))), status

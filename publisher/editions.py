@@ -39,6 +39,17 @@ FEATURES = {                     # same map as worker/licensing.py
     "host_watch": "msp",             # warning when a watched host goes quiet
     "templates": "msp",              # settings templates applied across customer SIEMs
 }
+LABELS = {                       # shown on the Users page; a test checks every feature has one
+    "notifications": "Notifications", "integrations": "Slack, Teams, webhook, Jira, TheHive",
+    "playbook_pack": "Playbook pack", "eval_export": "Eval-case export", "sso": "Single sign-on",
+    "reports": "Reports and insights", "tuning": "Rule-tuning advisor", "csv_export": "CSV export",
+    "retriage": "Re-triage", "incidents": "Incidents", "source_health": "Silent-source alarm",
+    "digest": "Handover digest", "assignments": "Queue and deadlines", "nis2": "NIS2 report drafts",
+    "incident_export": "Incident export", "ask": "Ask about an alert", "suppressions": "Suppressions",
+    "multi_siem": "Several SIEMs", "branding": "Own branding", "customer_reports": "Per-customer reports",
+    "customer_routing": "Per-customer alert routing", "customer_context": "Per-customer facts and playbooks",
+    "usage_export": "Usage export", "host_watch": "Watched hosts", "templates": "Settings templates",
+}
 _cache = {"at": 0.0, "state": None}
 
 

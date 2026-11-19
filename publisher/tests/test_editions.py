@@ -161,3 +161,8 @@ def test_per_user_siem_restrictions_survive_a_lapsed_licence():
     restricted = {"role": "analyst", "siem_access": ["hq"]}
     assert not auth.can_see_siem(restricted, "branch")
     assert auth.can_see_siem(restricted, "hq")
+
+
+def test_every_feature_has_a_label():
+    import editions
+    assert set(editions.LABELS) == set(editions.FEATURES)

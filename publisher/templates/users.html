@@ -47,7 +47,7 @@
 			{% if license.last_error %}<div class="alert alert-warning py-2 small mb-2">Licence check: {{ license.last_error }}</div>{% endif %}
 			<ul class="license-features small mb-0">
 				{% for name, on in license.features %}
-				<li class="{{ 'is-on' if on else 'is-off' }}">{{ {"notifications": "Notifications", "integrations": "Slack, Teams, webhook, Jira, TheHive", "playbook_pack": "Playbook pack", "eval_export": "Eval-case export", "sso": "Single sign-on", "reports": "Reports and insights", "tuning": "Rule-tuning advisor", "csv_export": "CSV export", "retriage": "Re-triage", "multi_siem": "Several SIEMs", "branding": "Own branding", "customer_reports": "Per-customer reports", "customer_routing": "Per-customer alert routing", "customer_context": "Per-customer facts and playbooks", "usage_export": "Usage export"}[name] }}: {{ "on" if on else "off" }}</li>
+				<li class="{{ 'is-on' if on else 'is-off' }}">{{ feature_labels.get(name, name) }}: {{ "on" if on else "off" }}</li>
 				{% endfor %}
 			</ul>
 			{% if license.edition == "msp" %}<p class="small mt-2 mb-0"><a href="/admin/usage.csv">Download this month's usage per customer (CSV)</a></p>{% endif %}
