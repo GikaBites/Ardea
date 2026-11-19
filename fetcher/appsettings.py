@@ -115,6 +115,17 @@ FIELDS = [
           services=("fetcher",)),
     Field("IGNORED_RULES_MATCH", "triage", "Never look at rules whose name contains", "lines",
           "One piece of text per line, for example a vendor name.", services=("fetcher",)),
+    Field("FLOOD_GUARD", "triage", "Handle bursts quickly", "bool",
+          "When one rule fires on many computers with the same program, Ardea investigates the first few. If they "
+          "all get the same verdict, the rest reuse it instead of waiting hours in the queue. Real attacks (True "
+          "Positives) and high-impact alerts are always investigated one by one.", "true"),
+    Field("FLOOD_SAMPLE", "triage", "Burst: investigate this many first", "int", "", "3", min=2, max=20,
+          advanced=True, show_if="FLOOD_GUARD=true"),
+    Field("FLOOD_WINDOW_HOURS", "triage", "Burst: look back this many hours", "int", "", "6", min=1, max=72,
+          advanced=True, show_if="FLOOD_GUARD=true"),
+    Field("FLOOD_RECHECK_EVERY", "triage", "Burst: fully investigate again every", "int",
+          "After this many reused verdicts, one alert is investigated in full again.", "25", min=5, max=500,
+          advanced=True, show_if="FLOOD_GUARD=true"),
     Field("FEEDBACK_EXAMPLES", "triage", "Past analyst corrections shown to the model", "int",
           "How many similar alerts your analysts corrected are shown as examples. 0 = none.", "3",
           min=0, max=10, advanced=True),

@@ -108,4 +108,8 @@ def snapshot(user, can_see) -> dict:
              "processing": q["processing"] or 0, "oldest": _age(q["oldest"], now)}
     if waiting and avg and avg["ms"]:
         queue["eta_minutes"] = max(1, round((q["ready"] or 0) * float(avg["ms"]) / 60000))
-    return {"worker": w, "fetcher": _fetcher(rows.get("fetcher"), now), "queue": queue}
+    t = rows.get("worker-tasks")
+    tasks = None
+    if t is not None and _age(t["updated_at"], now) < 180:
+        tasks = {"state": t["state"], "text": t["detail"] if (not t["siem"] or can_see(t["siem"])) else ""}
+    return {"worker": w, "fetcher": _fetcher(rows.get("fetcher"), now), "queue": queue, "tasks": tasks}

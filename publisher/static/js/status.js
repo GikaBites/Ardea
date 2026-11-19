@@ -58,6 +58,7 @@
     } else if (w.since != null && w.state !== "idle") {
       wtitle = w.text + " (for " + dur(w.since) + ")";
     }
+    if (d.tasks) wtitle += " · Second worker (settings tests and questions): " + (d.tasks.text || d.tasks.state);
     set("worker", w.level === "ok" && w.state === "idle" ? "idle" : w.level, wt, wtitle, wp, href, wmeta);
 
     var ft = f.text, fp = null, fmeta = "";

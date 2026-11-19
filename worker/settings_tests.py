@@ -157,7 +157,7 @@ def run_pending(conn, limit: int = 3):
         if not row:
             return
         kind = row["kind"]
-        appsettings.activity(conn, "worker", "testing", f"Running a settings test ({kind.split(':')[0]})")
+        appsettings.activity(conn, config.SERVICE, "testing", f"Running a settings test ({kind.split(':')[0]})")
         try:
             if not KINDS.match(kind):
                 ok, detail = False, "Unknown test."

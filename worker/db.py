@@ -36,6 +36,7 @@ ALTER TABLE alerts ADD COLUMN IF NOT EXISTS elastic_id TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS process_name TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS process_executable TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS parent_executable TEXT;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 50;
 CREATE INDEX IF NOT EXISTS alerts_siem_idx ON alerts (siem, elastic_id);
 CREATE TABLE IF NOT EXISTS siems (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, kibana_url TEXT, position INT NOT NULL DEFAULT 0,
@@ -60,7 +61,9 @@ def reap_stale_leases(conn):
 
 
 def claim_next_alert(conn):
-    """Atomically lease the oldest runnable alert. Safe with several worker replicas."""
+    """Atomically lease the most urgent runnable alert. Safe with several worker replicas.
+    Most urgent = the rule's risk (priority, set by the fetcher), plus 1 point for every 5 minutes it has waited
+    (at most 40), so a low alert is never starved; equal ones oldest first."""
     return conn.execute(
         """UPDATE alerts SET status = 'processing', locked_by = %s, locked_at = NOW(),
                              attempts = attempts + 1
@@ -68,7 +71,9 @@ def claim_next_alert(conn):
                SELECT alert_id FROM alerts
                WHERE status IN ('new', 'retry')
                  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
-               ORDER BY timestamp ASC
+               ORDER BY COALESCE(priority, 50)
+                        + LEAST(EXTRACT(EPOCH FROM NOW() - COALESCE(inserted_at, NOW())) / 300, 40) DESC,
+                        timestamp ASC
                LIMIT 1
                FOR UPDATE SKIP LOCKED)
            RETURNING alert_id, attempts, count, rule_id, rule_name, host_name, user_name, alert_hash,

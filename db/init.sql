@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS alerts (
     elastic_id      TEXT,                              -- the alert's _id in that SIEM
     process_name       TEXT,                           -- for the rule-tuning advisor (Pro)
     process_executable TEXT,
-    parent_executable  TEXT
+    parent_executable  TEXT,
+    priority        INT         NOT NULL DEFAULT 50     -- rule risk (+20 high-impact tactic): the worker takes the highest first
 );
 CREATE INDEX IF NOT EXISTS alerts_queue_idx    ON alerts (status, next_attempt_at, timestamp);
 CREATE INDEX IF NOT EXISTS alerts_hash_idx     ON alerts (alert_hash, timestamp DESC);

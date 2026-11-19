@@ -201,6 +201,7 @@ ALTER TABLE alerts ADD COLUMN IF NOT EXISTS process_name TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS process_executable TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS parent_executable TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS elastic_id TEXT;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 50;
 CREATE INDEX IF NOT EXISTS alerts_siem_idx ON alerts (siem, elastic_id);
 CREATE TABLE IF NOT EXISTS siems (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, kibana_url TEXT, position INT NOT NULL DEFAULT 0,
@@ -269,6 +270,26 @@ def find_recent_duplicate(cur, siem_id: str, key: str, ts: datetime):
     return cur.fetchone()
 
 
+SEVERITY_RISK = {"low": 21, "medium": 47, "high": 73, "critical": 99}
+HIGH_IMPACT = {"Credential Access", "Lateral Movement", "Impact", "Exfiltration"}
+
+
+def priority(src: dict) -> int:
+    """How urgent an alert is before it is investigated: the rule's risk score (0-100, or from its severity),
+    plus 20 for a high-impact tactic. The worker takes the highest first."""
+    try:
+        risk = float(_first(_get(src, "kibana.alert.risk_score")))
+    except (TypeError, ValueError):
+        risk = SEVERITY_RISK.get(str(_first(_get(src, "kibana.alert.severity")) or "").lower(), 47)
+    tactics = set()
+    for t in _get(src, "kibana.alert.rule.threat") or []:
+        if isinstance(t, dict):
+            name = (t.get("tactic") or {}).get("name") if isinstance(t.get("tactic"), dict) else None
+            if name:
+                tactics.add(name)
+    return int(max(0, min(100, risk))) + (20 if tactics & HIGH_IMPACT else 0)
+
+
 def process_hit(cur, siem, hit: dict, ignored: dict, legacy: bool = False) -> str:
     src = hit.get("_source", {})
     elastic_id = hit.get("_id")
@@ -297,8 +318,8 @@ def process_hit(cur, siem, hit: dict, ignored: dict, legacy: bool = False) -> st
     cur.execute("""
         INSERT INTO alerts (alert_id, timestamp, first_seen, alert_hash, status,
                             rule_id, rule_name, host_name, user_name, incident_key, siem, elastic_id,
-                            process_name, process_executable, parent_executable)
-        VALUES (%s, %s, %s, %s, 'new', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            process_name, process_executable, parent_executable, priority)
+        VALUES (%s, %s, %s, %s, 'new', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (alert_id) DO NOTHING""",
         (alert_id, ts, ts, key,
          _get(src, "kibana.alert.rule.rule_id"), rule_name,
@@ -306,7 +327,7 @@ def process_hit(cur, siem, hit: dict, ignored: dict, legacy: bool = False) -> st
          _first(_get(src, "user.name")),
          incident_key(src, ts, siem.id), siem.id, elastic_id,
          _short(_first(_get(src, "process.name"))), _short(_first(_get(src, "process.executable"))),
-         _short(_first(_get(src, "process.parent.executable")))))
+         _short(_first(_get(src, "process.parent.executable"))), priority(src)))
     return "queued"
 
 

@@ -13,6 +13,7 @@ import re
 import time
 
 import appsettings
+import config
 import elastic
 import siem_tools
 from agent import Investigation, LLMUnavailable, _get, _parse_text_tool_calls, _truncate, _wrap
@@ -186,7 +187,7 @@ def run_pending(conn, llm) -> bool:
         return False
     if not q:
         return False
-    appsettings.activity(conn, "worker", "answering", f"Answering {q['asked_by'] or 'an analyst'}'s question",
+    appsettings.activity(conn, config.SERVICE, "answering", f"Answering {q['asked_by'] or 'an analyst'}'s question",
                          alert_id=q["alert_id"], max_steps=MAX_STEPS, info={"max_seconds": MAX_SECONDS})
     try:
         text, cited, steps, note = answer(conn, llm, q)

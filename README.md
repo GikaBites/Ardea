@@ -812,6 +812,30 @@ The `lan` and `egress` networks use `172.30.10.0/24` and `172.30.20.0/24`. If th
 - `VERIFY_CLOSURES=true` adds a short second check (10–20 s) before an alert is closed as False or Benign
   Positive. It catches wrong closures; turn it off only if Ardea cannot keep up with your alert volume.
 
+### Which alert comes first, and bursts
+
+**Most urgent first.** The worker does not take alerts in arrival order. Each alert gets a priority from its
+rule's risk score in Elastic (Low 21, Medium 47, High 73, Critical 99), plus 20 for credential access, lateral
+movement, impact or exfiltration. The highest goes first. An alert gains a point for every 5 minutes it waits
+(at most 40), so a low alert is never forgotten behind a stream of high ones.
+
+**Bursts.** When one rule fires on many computers with the same program and parent program (an RMM agent, a
+software rollout, a scanner), Ardea investigates the first three. If all three got the same verdict, the rest of
+the burst reuses it within seconds, with the investigated alerts named in the summary, instead of waiting hours
+for the model. A True Positive is never reused, and neither are alerts with a high-impact tactic or text that
+tries to instruct the model. Nothing is reused once an analyst disagreed with a verdict of the burst, and every
+25th reused alert is investigated in full again. *Settings → How alerts are handled → Handle bursts quickly*
+switches it off; the numbers are under Advanced.
+
+### A second worker for questions and tests
+
+`docker compose up -d` also starts **worker-tasks**, a second copy of the worker that only runs the Settings
+page tests and answers analysts' questions (*Ask about this alert*). They no longer wait until the current
+investigation is finished. It never investigates alerts. If it is not running, the main worker does these
+tasks between alerts as before. Both use the same Ollama: start Ollama with `OLLAMA_NUM_PARALLEL=2` (it needs
+more memory) to answer a question while an alert is being investigated; otherwise the question waits only for
+the investigation's current model step.
+
 ---
 
 ## Testing and evaluation

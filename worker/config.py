@@ -1,5 +1,6 @@
 """All tunables in one place. Each is read from .env first, then from the Settings page (appsettings.py),
 then the default here. The worker reloads this module when the Settings page changes."""
+import os
 import appsettings
 
 
@@ -86,6 +87,10 @@ CACHE_TTL_WEB = _int("CACHE_TTL_WEB", 86400)
 
 # --- Worker ------------------------------------------------------------------------
 POLL_SECONDS = _int("WORKER_POLL_SECONDS", 5)
+# "all": investigate alerts and do everything else (one worker). "tasks": only settings tests and analysts'
+# questions, so they never wait behind an investigation (the optional worker-tasks service).
+WORKER_ROLE = "tasks" if os.environ.get("WORKER_ROLE", "all").strip().lower() == "tasks" else "all"
+SERVICE = "worker-tasks" if WORKER_ROLE == "tasks" else "worker"
 MAX_ATTEMPTS = _int("WORKER_MAX_ATTEMPTS", 3)
 LEASE_MINUTES = _int("WORKER_LEASE_MINUTES", 40)
 

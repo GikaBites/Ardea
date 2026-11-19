@@ -60,11 +60,11 @@ services:
     networks: [internal, lan]
     logging: *logging
 
-  worker:
+  worker: &worker-service
     build: ./worker
     container_name: Ardea_worker
     restart: unless-stopped
-    environment:
+    environment: &worker-env
       <<: *db-env
       # One SIEM via .env (below), or several via siems/siems.json (overrides these when present)
       ELASTIC_URL: ${ELASTIC_URL:-}
@@ -157,6 +157,17 @@ services:
     networks: [internal, lan]
     logging: *logging
 
+
+  # Settings tests and analysts' questions ("Ask about this alert"), so they never wait behind an investigation.
+  # Same image and settings as the worker; it never investigates alerts or runs scheduled jobs. Without it the
+  # worker does these itself between alerts. Ollama answers one request at a time unless you start it with
+  # OLLAMA_NUM_PARALLEL=2 (more memory): then a question is answered while an alert is investigated.
+  worker-tasks:
+    <<: *worker-service
+    container_name: Ardea_worker_tasks
+    environment:
+      <<: *worker-env
+      WORKER_ROLE: tasks
   publisher:
     build: ./publisher
     container_name: Ardea_publisher

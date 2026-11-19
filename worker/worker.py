@@ -23,6 +23,7 @@ import config
 import db
 import digest
 import elastic
+import flood
 import health
 import licensing
 import notifier
@@ -149,6 +150,15 @@ def _process(conn, llm, row: dict):
             log.info("alert %s -> %s by suppression #%s", alert_id, final["verdict"], s["id"])
             return
         log.info("alert %s matches suppression #%s but is investigated: %s", alert_id, s["id"], why_not)
+    burst = flood.find(conn, row) if flood.blocked(ctx) is None else None
+    if burst is not None:
+        final = enrich_result(flood.verdict(burst), ctx, row)
+        db.store_result(conn, alert_id, final, {"model": None, "prompt_version": config.PROMPT_VERSION,
+                                                "steps": 0, "tool_calls": 0, "duration_ms": 0},
+                        notifier.build_notifications(final, row.get("user_name")))
+        log.info("alert %s -> %s reused from %s investigated alerts of the same burst", alert_id, final["verdict"],
+                 len(burst["samples"]))
+        return
     pb = playbooks.resolve(ctx)
     try:
         history = db.similar_feedback(conn, row, config.FEEDBACK_EXAMPLES)
@@ -233,6 +243,67 @@ def _give_up_or_retry(conn, row, error: str):
                      (error[:2000], row["alert_id"]))
 
 
+_tasks_seen = {"at": -1e9, "alive": False}
+
+
+def tasks_worker_alive(conn) -> bool:
+    """Is the worker-tasks service running? Then settings tests and questions are left to it (checked every 30 s)."""
+    if time.monotonic() - _tasks_seen["at"] < 30:
+        return _tasks_seen["alive"]
+    try:
+        row = conn.execute("""SELECT 1 FROM service_activity WHERE service = 'worker-tasks'
+                              AND updated_at > NOW() - interval '2 minutes'""").fetchone()
+        _tasks_seen["alive"] = row is not None
+    except Exception:
+        _tasks_seen["alive"] = False
+    _tasks_seen["at"] = time.monotonic()
+    return _tasks_seen["alive"]
+
+
+def run_tasks():
+    """The worker-tasks service: settings tests and analysts' questions only, never alerts or scheduled jobs."""
+    settings = appsettings.Runtime("worker-tasks", extra_env=_settings_env)
+    llm = probe = None
+    conn = None
+    threading.Thread(target=_watchdog, name="watchdog", daemon=True).start()
+    log.info("worker-tasks: settings tests and questions only")
+    while _running:
+        _alive("tasks loop")
+        try:
+            if conn is None or conn.closed:
+                conn = db.get_connection()
+            if settings.tick(conn) or llm is None:
+                apply_settings(conn)
+                llm = Client(host=config.LLM_URL, timeout=config.LLM_TIMEOUT)
+                probe = Client(host=config.LLM_URL, timeout=10)
+            licensing.sync(conn)
+            HEARTBEAT.touch()
+            settings_tests.run_pending(conn)
+            busy = False
+            if licensing.has("ask") and llm_ready(probe):
+                _hard_limit(ask.MAX_SECONDS + 300)
+                try:
+                    busy = ask.run_pending(conn, llm)
+                except Overrun as where:
+                    log.error("a question ran past %s s and was stopped. It was here:\n%s", ask.MAX_SECONDS + 300, where)
+                    ask.fail_running(conn, "Answering took too long and was stopped.")
+                    conn = _reconnect(conn)
+                finally:
+                    signal.alarm(0)
+            if not busy:
+                appsettings.activity(conn, config.SERVICE, "idle", "Waiting for settings tests and questions")
+                time.sleep(2)
+        except Exception:
+            log.exception("tasks loop error; reconnecting in 10s")
+            try:
+                conn and conn.close()
+            except Exception:
+                pass
+            conn = None
+            time.sleep(10)
+    log.info("worker-tasks stopped")
+
+
 def run_worker():
     settings = appsettings.Runtime("worker", extra_env=_settings_env)
     llm = probe = None
@@ -255,7 +326,9 @@ def run_worker():
                     licensing.refresh(conn)
                 _describe()
                 described = True
-            settings_tests.run_pending(conn)
+            tasks_elsewhere = tasks_worker_alive(conn)
+            if not tasks_elsewhere:
+                settings_tests.run_pending(conn)
             packs.tick(conn)                     # playbook pack: uploads, daily update (Pro / MSP)
             if not checked:
                 db.ensure_schema(conn)
@@ -290,7 +363,7 @@ def run_worker():
                                      "alerts wait in the queue")
                 time.sleep(config.LLM_UNAVAILABLE_BACKOFF)
                 continue
-            if licensing.has("ask"):
+            if licensing.has("ask") and not tasks_elsewhere:
                 _alive("answering a question")
                 _hard_limit(ask.MAX_SECONDS + 300)
                 try:
@@ -346,4 +419,4 @@ def run_worker():
 
 
 if __name__ == "__main__":
-    run_worker()
+    run_tasks() if config.WORKER_ROLE == "tasks" else run_worker()
