@@ -204,6 +204,12 @@ def run_pending(conn, llm) -> bool:
     return True
 
 
+def fail_running(conn, note: str):
+    """Mark questions this worker was answering as failed (after it was stopped by the time limit)."""
+    conn.execute("UPDATE alert_questions SET status = 'failed', note = %s, finished_at = NOW() WHERE status = 'running'",
+                 (note,))
+
+
 def requeue_stuck(conn):
     conn.execute("UPDATE alert_questions SET status = 'queued' WHERE status = 'running' "
                  "AND started_at < NOW() - interval '15 minutes'")

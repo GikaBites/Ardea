@@ -5,11 +5,14 @@
   * if Ollama is unreachable, alerts stay queued instead of using up their retries
   * True Positive notifications are queued with the result and delivered from the outbox
 """
+import faulthandler
 import importlib
 import logging
 import os
 import pathlib
 import signal
+import sys
+import threading
 import time
 
 from ollama import Client
@@ -51,6 +54,47 @@ def _stop(*_):
 
 signal.signal(signal.SIGTERM, _stop)
 signal.signal(signal.SIGINT, _stop)
+
+
+# --------------------------------------------------------------------------- hang protection
+class Overrun(BaseException):
+    """Raised by SIGALRM when one alert or question runs far past its time limit. A BaseException, so that no
+    'except Exception' inside the investigation swallows it."""
+
+
+def _alarm(_signum, frame):
+    import traceback
+    raise Overrun("".join(traceback.format_stack(frame, limit=15)))
+
+
+signal.signal(signal.SIGALRM, _alarm)
+faulthandler.enable()                                  # a crash prints every thread's stack to the log
+faulthandler.register(signal.SIGUSR1, all_threads=True)   # docker kill -s USR1 <worker>: print where it is
+_beat = {"at": time.monotonic(), "what": "starting"}
+
+
+def _alive(what: str):
+    _beat["at"], _beat["what"] = time.monotonic(), what
+
+
+def watchdog_limit() -> int:
+    """Seconds without a sign of life before the worker gives up and exits (Docker then restarts it)."""
+    return max(1800, config.MAX_WALL_SECONDS + config.LLM_TIMEOUT + 600)
+
+
+def _watchdog():
+    while True:
+        time.sleep(30)
+        if time.monotonic() - _beat["at"] > watchdog_limit():
+            log.critical("worker has not made progress for %s minutes (%s): printing where it hangs and exiting "
+                         "so that Docker restarts it", watchdog_limit() // 60, _beat["what"])
+            faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+            sys.stderr.flush()
+            os._exit(70)
+
+
+def _hard_limit(seconds: int):
+    signal.alarm(max(1, int(seconds)))
 
 
 def _siem_fields(siem_id) -> dict:
@@ -165,6 +209,30 @@ def apply_settings(conn) -> bool:
     return True
 
 
+def _reconnect(conn):
+    """After an Overrun the connection may be mid-query: start a fresh one."""
+    try:
+        conn and conn.close()
+    except Exception:
+        pass
+    return db.get_connection()
+
+
+def _give_up_or_retry(conn, row, error: str):
+    state = db.mark_retry(conn, row["alert_id"], row["attempts"], error)
+    if state == "failed":
+        # make the failure visible to analysts
+        final = fallback_verdict(f"{error.split(':')[0]} after {row['attempts']} attempts")
+        db.store_result(conn, row["alert_id"], {**final, "alert_id": row["alert_id"],
+                                                "rule_name": row["rule_name"],
+                                                "hostname": row["host_name"],
+                                                **_siem_fields(row.get("siem"))},
+                        {"model": config.MODEL, "prompt_version": config.PROMPT_VERSION})
+        # store_result clears last_error and marks done: restore both so the cause is kept
+        conn.execute("UPDATE alerts SET status='failed', last_error=%s WHERE alert_id=%s",
+                     (error[:2000], row["alert_id"]))
+
+
 def run_worker():
     settings = appsettings.Runtime("worker", extra_env=_settings_env)
     llm = probe = None
@@ -172,7 +240,9 @@ def run_worker():
     described = False
     checked = False
     last_maintenance = 0.0
+    threading.Thread(target=_watchdog, name="watchdog", daemon=True).start()
     while _running:
+        _alive("main loop")
         try:
             if conn is None or conn.closed:
                 conn = db.get_connection()
@@ -220,8 +290,19 @@ def run_worker():
                                      "alerts wait in the queue")
                 time.sleep(config.LLM_UNAVAILABLE_BACKOFF)
                 continue
-            if licensing.has("ask") and ask.run_pending(conn, llm):
-                continue                         # analysts' follow-up questions go before the next alert
+            if licensing.has("ask"):
+                _alive("answering a question")
+                _hard_limit(ask.MAX_SECONDS + 300)
+                try:
+                    if ask.run_pending(conn, llm):
+                        continue                 # analysts' follow-up questions go before the next alert
+                except Overrun as where:
+                    log.error("a question ran past %s s and was stopped. It was here:\n%s", ask.MAX_SECONDS + 300, where)
+                    ask.fail_running(conn, "Answering took too long and was stopped.")
+                    conn = _reconnect(conn)
+                    continue
+                finally:
+                    signal.alarm(0)
             row = db.claim_next_alert(conn)
             if row is None:
                 appsettings.activity(conn, "worker", "idle", "Waiting for new alerts")
@@ -232,25 +313,27 @@ def run_worker():
                                  alert_id=row["alert_id"], siem=row.get("siem"), max_steps=config.MAX_STEPS,
                                  info={"attempt": row["attempts"],
                                        "max_seconds": config.MAX_WALL_SECONDS})
+            limit = config.MAX_WALL_SECONDS + config.LLM_TIMEOUT + 300
+            _alive(f"alert {row['alert_id']}")
+            _hard_limit(limit)
             try:
                 process(conn, llm, row)
+            except Overrun as where:
+                log.error("alert %s ran past %s minutes and was stopped (attempt %s). It was here:\n%s",
+                          row["alert_id"], limit // 60, row["attempts"], where)
+                conn = _reconnect(conn)
+                _give_up_or_retry(conn, row, f"Overrun: the investigation ran past {limit // 60} minutes and was stopped")
             except LLMUnavailable as exc:
                 log.warning("alert %s: LLM went away mid-investigation (%s); re-queued", row["alert_id"], exc)
                 db.release_alert(conn, row["alert_id"], f"LLM unavailable: {exc}", config.LLM_UNAVAILABLE_BACKOFF)
             except Exception as exc:
                 log.exception("alert %s failed (attempt %s)", row["alert_id"], row["attempts"])
-                state = db.mark_retry(conn, row["alert_id"], row["attempts"], f"{type(exc).__name__}: {exc}")
-                if state == "failed":
-                    # make the failure visible to analysts
-                    final = fallback_verdict(f"{type(exc).__name__} after {row['attempts']} attempts")
-                    db.store_result(conn, row["alert_id"], {**final, "alert_id": row["alert_id"],
-                                                            "rule_name": row["rule_name"],
-                                                            "hostname": row["host_name"],
-                                                            **_siem_fields(row.get("siem"))},
-                                    {"model": config.MODEL, "prompt_version": config.PROMPT_VERSION})
-                    # store_result clears last_error and marks done: restore both so the cause is kept
-                    conn.execute("UPDATE alerts SET status='failed', last_error=%s WHERE alert_id=%s",
-                                 (f"{type(exc).__name__}: {exc}"[:2000], row["alert_id"]))
+                _give_up_or_retry(conn, row, f"{type(exc).__name__}: {exc}")
+            finally:
+                signal.alarm(0)
+        except Overrun as where:                 # an alarm that fired outside the guarded calls
+            log.error("worker step stopped by the time limit. It was here:\n%s", where)
+            conn = _reconnect(conn)
         except Exception:
             log.exception("worker loop error; reconnecting in 10s")
             try:

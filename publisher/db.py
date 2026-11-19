@@ -71,7 +71,9 @@ def _database_url() -> str:
     return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{dbname}"
 
 
-engine = create_engine(_database_url(), future=True, pool_pre_ping=True)
+engine = create_engine(_database_url(), future=True, pool_pre_ping=True, pool_recycle=1800,
+                       connect_args={"connect_timeout": 10, "keepalives": 1, "keepalives_idle": 60,
+                                     "keepalives_interval": 10, "keepalives_count": 5})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -116,6 +118,8 @@ def get_connection():
         user=os.environ["POSTGRES_USER"],
         password=os.environ["POSTGRES_PASSWORD"],
         row_factory=dict_row,
+        connect_timeout=10,                 # a database that does not answer is an error, never a hang
+        keepalives=1, keepalives_idle=60, keepalives_interval=10, keepalives_count=5,   # dead peer: ~2 min
     )
 
 

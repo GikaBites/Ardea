@@ -11,12 +11,16 @@
   * one SIEM being down never stops collection from the others
   * alert_id = '<siem id>:<Elastic _id>', so two clusters can never collide
 """
+import faulthandler
 import hashlib
 import json
 import logging
 import os
 import pathlib
 import re
+import signal
+import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -432,10 +436,30 @@ def _wait(seconds: float, settings) -> bool:
     return False
 
 
+_beat = {"at": time.monotonic()}
+WATCHDOG_SECONDS = 1800
+
+
+def _watchdog():
+    """No cycle for 30 minutes (a hung connection): print where it hangs and exit, so Docker restarts it."""
+    while True:
+        time.sleep(30)
+        if time.monotonic() - _beat["at"] > max(WATCHDOG_SECONDS, cooldown() * 3):
+            log.critical("fetcher has not finished a cycle for %s minutes: printing where it hangs and exiting "
+                         "so that Docker restarts it", int(time.monotonic() - _beat["at"]) // 60)
+            faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+            sys.stderr.flush()
+            os._exit(70)
+
+
 def run():
+    faulthandler.enable()
+    faulthandler.register(signal.SIGUSR1, all_threads=True)     # docker kill -s USR1 <fetcher>: where is it
+    threading.Thread(target=_watchdog, name="watchdog", daemon=True).start()
     settings = appsettings.Runtime("fetcher", every=0, extra_env=_settings_env)
     configured, synced, changed = None, False, False
     while True:
+        _beat["at"] = time.monotonic()
         try:
             changed = _tick(settings) or changed
             if changed or configured is None:
