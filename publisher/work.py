@@ -18,6 +18,7 @@ SLA_DEFAULTS = {"Critical": ("SLA_CRITICAL_MINUTES", 60), "High": ("SLA_HIGH_MIN
                 "Medium": ("SLA_MEDIUM_MINUTES", 1440)}
 LOW_DEFAULT = ("SLA_LOW_MINUTES", 4320)
 RANGES = {"7d": 7, "30d": 30, "90d": 90}
+MAX_BULK = 2000                                   # alerts per bulk action
 SEVERITY_RANK = {s: i for i, s in enumerate(("Critical", "High", "Medium", "Low", "Informational"))}
 
 
@@ -129,7 +130,7 @@ def update(alert_ids: list[str], actor: str, action: str, assignee: str | None =
                             "see this SIEM.")
     changed = 0
     with get_connection() as conn:
-        for aid in alert_ids[:500]:
+        for aid in alert_ids[:MAX_BULK]:
             cur = conn.execute("SELECT assignee, status FROM alert_work WHERE alert_id = %s", (aid,)).fetchone()
             new_assignee = (cur or {}).get("assignee")
             new_status = (cur or {}).get("status") or "open"

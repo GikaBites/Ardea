@@ -345,7 +345,7 @@ def queue_work():
     main = _main()
     visible = {a["alert_id"]: a for a in main.visible_alerts(main.load_alerts())}
     one = request.form.get("one")
-    ids = [one] if one in visible else [a for a in request.form.getlist("alert_id") if a in visible][:500]
+    ids = [one] if one in visible else [a for a in request.form.getlist("alert_id") if a in visible][:work.MAX_BULK]
     action = request.form.get("one_action", "take") if one else request.form.get("action", "")
     back = request.form.get("back", "/queue")
     back = back if back.startswith(("/queue", "/incidents/")) and "//" not in back else "/queue"

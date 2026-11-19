@@ -44,8 +44,10 @@ app = Flask(__name__)
 MAX_REQUEST_BYTES = 16 * 1024
 MAX_UPLOAD_BYTES = 320 * 1024                     # a 200 KB logo, base64-free multipart, plus the form
 MAX_PACK_UPLOAD_BYTES = 2 * 1024 * 1024 + 16 * 1024   # a signed playbook pack (up to 2 MB) plus the form
+MAX_BULK_BYTES = 256 * 1024                       # bulk actions: up to 2000 ticked alerts
 UPLOAD_PATHS = {"/admin/settings/reports": MAX_UPLOAD_BYTES,
-                "/admin/settings/playbooks/upload": MAX_PACK_UPLOAD_BYTES}
+                "/admin/settings/playbooks/upload": MAX_PACK_UPLOAD_BYTES,
+                "/queue/work": MAX_BULK_BYTES, "/incidents/work": MAX_BULK_BYTES}
 app.config["MAX_CONTENT_LENGTH"] = max(UPLOAD_PATHS.values())
 
 
@@ -885,6 +887,14 @@ def index():
         can_ask=can_give_feedback() and editions.has("ask"),
         can_csv=editions.has("csv_export"),
     )
+
+
+@app.get("/api/status")
+def api_status():
+    """The status bar: worker, fetcher and queue (status.py)."""
+    import status
+    user = g.user
+    return jsonify(status.snapshot(user, lambda s: auth.can_see_siem(user, s)))
 
 
 @app.get("/api/alerts")

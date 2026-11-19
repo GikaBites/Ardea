@@ -321,6 +321,7 @@ def run_siem(conn, siem, ignored: dict, legacy: bool):
     conn.commit()
     if stats["queued"] or stats["duplicate"]:
         log.info("[%s] cycle: %s", siem.id, stats)
+    return stats
 
 
 _edition = {"tier": None}
@@ -356,16 +357,30 @@ def licensed_siems(conn, configured):
 def run_once(configured) -> tuple[int, int]:
     """One pass over every collected SIEM. Returns (failed, collected); a failing SIEM does not stop the others."""
     ignored = load_ignored_rules()
-    failed = 0
+    failed, new, errors = 0, 0, []
     with db.get_connection() as conn:
         configured = licensed_siems(conn, configured)
         for n, siem in enumerate(configured):
+            appsettings.activity(conn, "fetcher", "collecting", f"Collecting alerts from {siem.name}", siem=siem.id,
+                                 info={"siem": n + 1, "of": len(configured)}, every=0)
             try:
-                run_siem(conn, siem, ignored, legacy=(n == 0))
-            except Exception:
+                new += run_siem(conn, siem, ignored, legacy=(n == 0))["queued"]
+            except Exception as exc:
                 conn.rollback()
                 failed += 1
+                errors.append({"siem": siem.id, "name": siem.name, "error": type(exc).__name__})
                 log.exception("[%s] fetch failed", siem.id)
+        nxt = datetime.now(timezone.utc) + timedelta(seconds=cooldown())
+        if failed and failed == len(configured):
+            appsettings.activity(conn, "fetcher", "error", "No SIEM could be reached: " +
+                                 ", ".join(e["name"] for e in errors), info={"new": 0, "errors": errors},
+                                 next_at=nxt, every=0)
+        else:
+            appsettings.activity(conn, "fetcher", "idle",
+                                 f"{new} new alert{'s' if new != 1 else ''} in the last collection" +
+                                 (f"; {', '.join(e['name'] for e in errors)} unreachable" if errors else ""),
+                                 info={"new": new, "errors": errors, "siems": len(configured)},
+                                 next_at=nxt, every=0)
     return failed, len(configured)
 
 
@@ -439,6 +454,9 @@ def run():
                     HEARTBEAT.touch()              # healthy while at least one collected SIEM is reachable
             else:
                 HEARTBEAT.touch()                  # waiting for a SIEM to be configured is not unhealthy
+                with db.get_connection() as conn:
+                    appsettings.activity(conn, "fetcher", "waiting", "No SIEM with a fetcher API key is configured",
+                                         next_at=datetime.now(timezone.utc) + timedelta(seconds=20), every=0)
         except Exception:
             log.exception("fetch cycle failed")
         changed = _wait(cooldown() if configured else 20, settings) or changed

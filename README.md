@@ -352,6 +352,22 @@ with its arguments and result, and every model turn.
 Analysts and admins can use the 👍 / 👎 buttons, and pick the correct verdict on 👎. Feedback is shown to the model when similar alerts
 come in later. If an analyst marked a similar alert True Positive, the new one is never closed automatically.
 
+### Status bar
+
+The thin bar under the navigation shows, on every page and for every edition, what Ardea is doing now:
+
+- **Worker**: the alert it is investigating (rule and host, link to the alert), the current step such as
+  *reading the process tree*, the step count and how long it has been working; or that it is waiting for alerts,
+  answering a question, running a settings test, or waiting for the AI model.
+- **Fetcher**: how many new alerts the last collection brought, which SIEMs could not be reached, and when the
+  next collection is.
+- **Queue**: how many alerts wait to be investigated, with an estimate from the last 20 investigations. Hover for
+  how many wait for a retry and how long the oldest has waited.
+
+A part turns red when something looks stuck: an investigation running far past its time limit, a worker that
+has not reported for 3 minutes, or a collection more than 5 minutes overdue. Users limited to some SIEMs see only
+their SIEMs' queue, and no rule or host names from other SIEMs.
+
 ### Ask about this alert
 
 *Pro.* Analysts and admins can ask a follow-up question in the alert's **Ask about this alert** box, such as

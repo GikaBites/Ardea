@@ -55,6 +55,14 @@
 		{% if demo_mode %}
 		<div class="ar-demo" role="note">Demo with sample alerts: verdicts and investigations are examples, not live results. All paid features are on. <a href="https://github.com/GikaBites/ardea#installation">Install Ardea on your own SIEM</a></div>
 		{% endif %}
+		{% if g.user and not demo_mode and (not g.user.must_change_password or g.user.sso) %}
+		<div class="ar-status" id="ar-status" aria-live="polite" aria-label="What Ardea is doing now">
+			<div class="ar-st" data-svc="worker" data-level="wait"><span class="ar-st__dot" aria-hidden="true"></span><span class="ar-st__name">Worker</span><span class="ar-st__text">…</span><span class="ar-st__meta"></span><span class="ar-st__bar" aria-hidden="true"><i></i></span></div>
+			<div class="ar-st" data-svc="fetcher" data-level="wait"><span class="ar-st__dot" aria-hidden="true"></span><span class="ar-st__name">Fetcher</span><span class="ar-st__text">…</span><span class="ar-st__meta"></span><span class="ar-st__bar" aria-hidden="true"><i></i></span></div>
+			<div class="ar-st ar-st--queue" data-svc="queue" data-level="ok"><span class="ar-st__name">Queue</span><span class="ar-st__text">…</span></div>
+		</div>
+		<script src="{{ url_for('static', filename='js/status.js') }}" defer></script>
+		{% endif %}
 		{% if source_alarms %}
 		<div class="ar-alarm" role="alert">
 			<strong>A data source went quiet.</strong>

@@ -212,17 +212,26 @@ def run_worker():
             notifier.deliver_pending(conn)
 
             if not elastic.configured():
+                appsettings.activity(conn, "worker", "waiting", "No SIEM is configured yet")
                 time.sleep(config.POLL_SECONDS)
                 continue
             if not llm_ready(probe):
+                appsettings.activity(conn, "worker", "blocked", f"The AI model ({config.LLM_MODEL}) is not reachable; "
+                                     "alerts wait in the queue")
                 time.sleep(config.LLM_UNAVAILABLE_BACKOFF)
                 continue
             if licensing.has("ask") and ask.run_pending(conn, llm):
                 continue                         # analysts' follow-up questions go before the next alert
             row = db.claim_next_alert(conn)
             if row is None:
+                appsettings.activity(conn, "worker", "idle", "Waiting for new alerts")
                 time.sleep(config.POLL_SECONDS)
                 continue
+            appsettings.activity(conn, "worker", "investigating",
+                                 f"{row['rule_name'] or 'Alert'} on {row['host_name'] or 'an unknown host'}",
+                                 alert_id=row["alert_id"], siem=row.get("siem"), max_steps=config.MAX_STEPS,
+                                 info={"attempt": row["attempts"],
+                                       "max_seconds": config.MAX_WALL_SECONDS})
             try:
                 process(conn, llm, row)
             except LLMUnavailable as exc:

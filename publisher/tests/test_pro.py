@@ -524,3 +524,63 @@ def test_suppressions_from_feedback(monkeypatch):
     with auth.engine.begin() as conn:
         conn.execute(text("DELETE FROM feedback WHERE analyst = 'pro.analyst' AND comment IS NULL"))
         conn.execute(text("DELETE FROM suppressions"))
+
+
+def test_bulk_action_with_many_ticked_alerts_is_not_too_large(monkeypatch):
+    set_license("pro")
+    analyst = user("pro.analyst", "analyst")
+    c = sso_client(analyst, monkeypatch)
+    ids = [f"tpro:{'x' * 40}{n}" for n in range(1500)]
+    r = form_post(c, "/queue/work", analyst, {"action": "take", "alert_id": ids, "back": "/queue"})
+    assert r.status_code == 303
+    r = form_post(c, "/queue/work", analyst, {"action": "take", "alert_id": ids * 4, "back": "/queue"})
+    assert r.status_code == 303 and "Too+many+alerts" in r.headers["Location"]
+
+
+def test_status_bar(monkeypatch):
+    set_license("community")
+    admin = user("pro.admin", "admin")
+    monkeypatch.setattr(editions, "has", lambda f: f == "sso")
+    c = sso_client(admin, monkeypatch)
+    base = get(c, "/api/status", admin).get_json()["queue"]
+    cust = user("cust.viewer", "viewer", ["tother"])
+    c2 = sso_client(cust, monkeypatch)
+    base2 = get(c2, "/api/status", cust).get_json()["queue"]
+    with auth.engine.begin() as conn:
+        conn.execute(text("DELETE FROM service_activity"))
+        conn.execute(text("INSERT INTO alerts (alert_id, first_seen, timestamp, status, siem) VALUES "
+                          "('tpro:q1', NOW() - interval '10 minutes', NOW(), 'new', 'tpro'), "
+                          "('tother:q2', NOW(), NOW(), 'retry', 'tother'), ('tpro:q3', NOW(), NOW(), 'processing', 'tpro')"))
+        conn.execute(text("UPDATE alerts SET next_attempt_at = NOW() + interval '5 minutes' WHERE alert_id = 'tother:q2'"))
+    d = get(c, "/api/status", admin).get_json()
+    assert d["worker"]["state"] == "unknown" and d["queue"]["waiting"] == base["waiting"] + 2
+    assert d["queue"]["later"] == base["later"] + 1
+    with auth.engine.begin() as conn:
+        conn.execute(text("""INSERT INTO service_activity (service, state, detail, alert_id, siem, max_steps, info, started_at)
+                             VALUES ('worker', 'investigating', 'Whoami Process Activity on ws-it-03', 'tpro:q3', 'tpro', 8,
+                                     '{"max_seconds": 1200}', NOW() - interval '70 seconds'),
+                                    ('fetcher', 'idle', '2 new alerts in the last collection', NULL, NULL, NULL,
+                                     '{"new": 2, "errors": []}', NOW())"""))
+        conn.execute(text("UPDATE service_activity SET next_at = NOW() + interval '100 seconds' WHERE service = 'fetcher'"))
+        conn.execute(text("INSERT INTO investigation_steps (alert_id, run_id, step, kind, status) VALUES "
+                          "('tpro:q3', 'r', 1, 'llm', 'ok')"))
+        conn.execute(text("INSERT INTO investigation_steps (alert_id, run_id, step, kind, tool_name, status) VALUES "
+                          "('tpro:q3', 'r', 2, 'tool', 'get_auth_events', 'ok')"))
+    d = get(c, "/api/status", admin).get_json()
+    w = d["worker"]
+    assert w["alert_id"] == "tpro:q3" and w["step"] == 1 and w["phase"] == "reading logons" and w["level"] == "ok"
+    assert d["fetcher"]["level"] == "ok" and 90 <= d["fetcher"]["next_in"] <= 100
+    d = get(c2, "/api/status", cust).get_json()
+    assert "Whoami" not in json.dumps(d) and "alert_id" not in d["worker"]
+    assert d["queue"]["waiting"] == base2["waiting"] + 1 and d["queue"]["processing"] == base2["processing"]
+    with auth.engine.begin() as conn:
+        conn.execute(text("UPDATE service_activity SET started_at = NOW() - interval '2 hours' WHERE service = 'worker'"))
+        conn.execute(text("UPDATE service_activity SET next_at = NOW() - interval '1 hour' WHERE service = 'fetcher'"))
+    d = get(c, "/api/status", admin).get_json()
+    assert d["worker"]["level"] == "bad" and d["worker"]["text"].startswith("Possibly stuck")
+    assert d["fetcher"]["level"] == "bad"
+    assert 'id="ar-status"' in get(c, "/incidents", admin).get_data(as_text=True)
+    with auth.engine.begin() as conn:
+        conn.execute(text("DELETE FROM investigation_steps WHERE alert_id = 'tpro:q3'"))
+        conn.execute(text("DELETE FROM alerts WHERE alert_id IN ('tpro:q1', 'tother:q2', 'tpro:q3')"))
+        conn.execute(text("DELETE FROM service_activity"))

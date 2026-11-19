@@ -297,6 +297,11 @@ CREATE TABLE IF NOT EXISTS suppressions (         -- patterns closed without inv
     created_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL,
     revoked_by TEXT, revoked_at TIMESTAMPTZ, hits INT NOT NULL DEFAULT 0, last_hit_at TIMESTAMPTZ
 );
+CREATE TABLE IF NOT EXISTS service_activity (    -- what the worker and the fetcher are doing now (status bar)
+    service TEXT PRIMARY KEY, state TEXT NOT NULL, detail TEXT, alert_id TEXT, siem TEXT,
+    max_steps INT, info JSONB, next_at TIMESTAMPTZ,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS settings_tests (
     id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL, requested_by TEXT,
     requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), status TEXT NOT NULL DEFAULT 'queued',
@@ -524,6 +529,40 @@ def report(conn, service: str, extra_env: dict | None = None):
 
 
 _reported: dict[str, str] = {}
+_activity: dict[str, tuple] = {}
+
+
+def activity(conn, service: str, state: str, detail: str = "", *, alert_id=None, siem=None, max_steps=None,
+             info=None, next_at=None, every: float = 30.0):
+    """Record what this service is doing, for the status bar. Written when it changes, otherwise at most every
+    `every` seconds (that doubles as a heartbeat). Never raises. started_at resets when the state or the alert
+    changes. Psycopg connection; commits if it is not in autocommit."""
+    import time as _t
+    key = (state, detail, alert_id, siem, json.dumps(info, sort_keys=True, default=str))
+    last = _activity.get(service)
+    if last and last[0] == key and _t.monotonic() - last[1] < every:
+        return
+    try:
+        conn.execute("""INSERT INTO service_activity (service, state, detail, alert_id, siem, max_steps, info, next_at,
+                                                      started_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                        ON CONFLICT (service) DO UPDATE SET
+                            started_at = CASE WHEN service_activity.state = EXCLUDED.state
+                                               AND service_activity.alert_id IS NOT DISTINCT FROM EXCLUDED.alert_id
+                                              THEN service_activity.started_at ELSE NOW() END,
+                            state = EXCLUDED.state, detail = EXCLUDED.detail, alert_id = EXCLUDED.alert_id,
+                            siem = EXCLUDED.siem, max_steps = EXCLUDED.max_steps, info = EXCLUDED.info,
+                            next_at = EXCLUDED.next_at, updated_at = NOW()""",
+                     (service, state, (detail or "")[:300], alert_id, siem, max_steps,
+                      json.dumps(info, default=str) if info is not None else None, next_at))
+        if not conn.autocommit:
+            conn.commit()
+        _activity[service] = (key, _t.monotonic())
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
 
 
 def publish_key(conn, private_key):

@@ -795,6 +795,9 @@ def too_large(_exc):
     group = "playbooks" if request.path == "/admin/settings/playbooks/upload" else request.path.rsplit("/", 1)[-1]
     if request.path.startswith("/admin/settings/") and group in GROUP_NAMES:
         return redirect(url_for("settings.settings_page", group=group, too_large=1), code=303)
+    if request.path in ("/queue/work", "/incidents/work"):
+        back = "/queue" if request.path == "/queue/work" else "/incidents"
+        return redirect(f"{back}?error=Too+many+alerts+ticked+at+once.+Tick+fewer+and+apply+again.", code=303)
     return "Request too large.", 413
 
 
