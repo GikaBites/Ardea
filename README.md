@@ -18,6 +18,11 @@ access, suspected prompt injection and thin evidence always go to a person.
 
 ![Ardea alert view: a true positive with findings, evidence references and recommended actions](img/screenshot.png)
 
+_The demo, with sample alerts. The verdicts shown are examples, not real results._
+
+**Install on your own server** (Linux with Docker Compose v2): see [Installation](#installation), or run
+`curl -fsSL https://raw.githubusercontent.com/GikaBites/Ardea/main/install.sh | bash`.
+
 ## Try the demo (2 minutes, no SIEM needed)
 
 ```bash
