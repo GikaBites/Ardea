@@ -1,0 +1,19 @@
+name: Idea or feature request
+description: Suggest something that would make Ardea more useful.
+labels: ["idea"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve?
+      description: Describe the situation in your team, not only the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Ardea to do?
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you handle this today?

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/GikaBites/Ardea/blob/main/SECURITY.md
+    about: Please report security problems by e-mail, not as a public issue.
+  - name: Question or help with setup
+    url: https://github.com/GikaBites/Ardea/discussions
+    about: Ask in Discussions.
+  - name: Paid editions and licences
+    url: https://ardeasecurity.com/#pricing
+    about: Pricing, licence keys and e-mail support.

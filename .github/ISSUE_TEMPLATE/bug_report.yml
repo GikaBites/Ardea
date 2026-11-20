@@ -1,0 +1,57 @@
+name: Bug report
+description: Something does not work as described.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report this.
+        Security problems: please write to support@ardeasecurity.com instead of opening an issue.
+        Please remove host names, user names, IP addresses and API keys from anything you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we reproduce it?
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen?
+      options:
+        - Demo
+        - Installer (install.sh)
+        - Web console
+        - Investigations or verdicts
+        - Settings
+        - Backups or restore
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Run `git log -1 --oneline` in your Ardea folder.
+  - type: input
+    id: model
+    attributes:
+      label: AI model and hardware
+      placeholder: e.g. qwen3:14b on a 16 GB GPU
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Run `./support-bundle.sh` in your Ardea folder. It collects logs without secrets.
+        Paste the relevant lines here, or attach the file after checking it.
+      render: text
