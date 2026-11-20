@@ -863,6 +863,10 @@ the time and the number of days, or press **Back up now**, under *Settings → B
 backup and whether it worked. A backup on the same disk does not survive a broken disk: copy the `backups`
 folder to another machine or a NAS now and then (for example with a nightly `rsync`).
 
+Backups stay on your server. Ardea never sends them anywhere, and we never receive a copy. Anyone who has the
+`backups` folder can read all of Ardea's data and the passwords saved on the Settings page, so keep it as safe
+as the server itself.
+
 To go back to a backup (everything stored after it is lost):
 
 ```bash
@@ -879,6 +883,23 @@ size and the last backup. The worker updates it every 5 minutes and warns your t
 team*, at most once a day per problem, when the disk is nearly full (under 10% or 5 GB free), the last backup
 failed or is more than 36 hours old, or more than 8 hours of work is waiting. The same problems appear on
 *Settings → Start here*.
+
+### Support bundle
+
+When you ask for help, a support bundle saves a lot of back and forth. On the Docker host, in the Ardea folder:
+
+```bash
+./support-bundle.sh          # last 72 hours of logs; ./support-bundle.sh 24 for the last 24 hours
+```
+
+It saves one file, `ardea-support-<date>.tar.gz`, with the logs of every container, the versions of Ardea,
+Docker and the database, the server's memory and disk, *System health*, the last backups, the licence state
+and the queue size. Settings are listed by name: plain values are shown, secrets only as "set" or "empty".
+
+Passwords, API keys, tokens, webhook addresses, the secrets saved on the Settings page and the secrets in `.env`
+and `siems/siems.json` are replaced with `[REDACTED]` before the file is saved. If a known secret were still
+in it, no file is saved at all. The logs can still contain names of your computers, users and alerts, so look
+inside (`tar -xzf ardea-support-*.tar.gz`) before you send it. Nothing is sent anywhere by the command itself.
 
 ---
 
@@ -937,6 +958,7 @@ For development with live code changes:
 | Verdict *SIEM '<id>' is no longer configured* | The alert's SIEM was removed from `siems.json` (or disabled) before it was triaged. |
 | Each alert takes far longer than a few minutes | Check that Ollama keeps the model loaded (`ollama ps`) and that nothing else uses it at the same time. |
 | Browser warns about the certificate | Install Caddy's root certificate on that machine (step 4), or use your own certificate. Check that the address you typed is in `ARDEA_SITE_ADDRESS`. |
+| Anything else, or you are not sure | Make a support bundle (`./support-bundle.sh`, see [Support bundle](#support-bundle)) and send it to support@ardeasecurity.com with a short description. |
 | Lost admin password | `docker compose exec publisher python manage.py reset-password admin` |
 | "Wrong username or password, or the account is locked" for a correct password | The account is locked after failed attempts (15 minutes) or was disabled; an admin can see it on the Users page and reset it. |
 | Worker restarts with `NOTIFY_CHANNELS has unknown channel(s)` | Only `smtp` and `ntfy` are valid. |

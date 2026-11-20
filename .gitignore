@@ -11,3 +11,7 @@ siems/*.pem
 
 # Backups (database and settings key: secrets)
 backups/
+
+# Support bundles (logs of your installation)
+ardea-support-*.tar.gz
+ardea-support-*.tar.gz.part

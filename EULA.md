@@ -44,6 +44,15 @@ data. The licence check sends only the licence key and an installation name to t
 day. Optional features you configure (web search, notifications, your LLM) send data only to the services
 you choose.
 
+**Backups.** Ardea's nightly backups are saved on your own server, in the `backups` folder next to Ardea. They
+are never sent to us, and we have no copy of them, so we cannot restore them for you. You are responsible for
+keeping your backups safe, and for copying them to another place if you want them to survive a broken disk.
+
+**Support bundles.** A support bundle is made on your server and reaches us only if you choose to send it.
+Ardea removes passwords, keys and tokens from it before it is saved, but its logs can still contain details
+from your systems, such as computer and user names. We use it only to answer your support request, and delete
+it when the request is closed.
+
 ## 6. Ardea supports people; it does not replace them
 
 Ardea gives automated triage suggestions based on a language model and on data from your systems.
