@@ -54,3 +54,14 @@ def test_queue_warning(conn, monkeypatch):
     conn.execute("INSERT INTO triage_results (alert_id, response, result, duration_ms, model) "
                  "VALUES ('d1', '{}', '{}', 1200000, 'm')")                       # 20 minutes per alert
     assert sysinfo.run_due(conn, send=lambda *a: None) == ["queue"]                  # 30 x 20 min = 10 h
+
+
+def test_warns_when_no_backup_was_ever_made(conn, monkeypatch):
+    """A backup asked for on the Settings page that the backup service never picks up (it is not running)."""
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(sysinfo, "disk", lambda: {"total": 100, "free": 90 * 2 ** 30, "free_percent": 90.0})
+    if conn.execute("SELECT to_regclass('public.users') AS t").fetchone()["t"]:
+        pytest.skip("needs a database without the users table (the worker's view of a new installation)")
+    conn.execute("INSERT INTO backup_runs (kind, status) VALUES ('manual', 'requested')")
+    assert sysinfo.run_due(conn, now, send=lambda *a: None) == []                       # just asked
+    assert sysinfo.run_due(conn, now + timedelta(days=3), send=lambda *a: None) == ["backup"]

@@ -170,7 +170,7 @@ services:
       WORKER_ROLE: tasks
 
   # Nightly backup of the database and the Settings page key into ./backups (Settings -> Backups).
-  # Restore: ./backup/restore.sh backups/ardea-<date>.dump
+  # Restore: sudo ./backup/restore.sh backups/ardea-<date>.dump
   backup:
     image: postgres:16-alpine
     container_name: Ardea_backup

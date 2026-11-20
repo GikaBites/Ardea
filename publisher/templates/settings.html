@@ -106,8 +106,9 @@
 	{# ================================================================ SYSTEM HEALTH #}
 	{% elif group == "health" %}
 	{% set h = health %}
-	{% if h.problems %}
-	<div class="alert alert-warning py-2" role="alert"><strong>Needs attention:</strong>{% for p in h.problems %}<br>{{ p.text }}{% endfor %}</div>
+	{% set llm_down = h.ollama and not h.ollama.reachable %}
+	{% if h.problems or llm_down %}
+	<div class="alert alert-warning py-2" role="alert"><strong>Needs attention:</strong>{% if llm_down %}<br>The AI model (Ollama) cannot be reached, so no alert is investigated.{% endif %}{% for p in h.problems %}<br>{{ p.text }}{% endfor %}</div>
 	{% elif h.snapshot_at %}
 	<div class="alert alert-success py-2">Nothing needs attention.</div>
 	{% endif %}
@@ -140,7 +141,7 @@
 		<section class="card shadow-sm"><div class="card-body">
 			<h2 class="h6">Disk and database</h2>
 			{% if h.disk %}<p class="mb-1">{{ "%.1f" | format(h.disk.free / 1073741824) }} GB free of {{ "%.0f" | format(h.disk.total / 1073741824) }} GB ({{ h.disk.free_percent }}%).</p>
-			<div class="set-meter"><i style="width: {{ 100 - h.disk.free_percent }}%"></i></div>{% else %}<p class="set-help">No report yet.</p>{% endif %}
+			<div class="set-meter"><i data-width="{{ 100 - h.disk.free_percent }}"></i></div>{% else %}<p class="set-help">No report yet.</p>{% endif %}
 			{% if h.database %}<p class="small mb-0 mt-2">The database uses {{ "%.1f" | format(h.database / 1048576) }} MB.</p>{% endif %}
 		</div></section>
 		<section class="card shadow-sm"><div class="card-body">
@@ -191,7 +192,7 @@
 					<input class="form-control" id="s-name" name="name" value="{{ ev.get('name', '') }}" placeholder="Head office" />
 					<p class="set-help">Any name you like. It is shown in the console and in messages.</p></div>
 				<div class="set-field"><label class="set-label" for="s-id">Short ID</label>
-					<input class="form-control" id="s-id" name="id" value="{{ s.id if s else ev.get('id', '') }}" {% if s %}disabled{% endif %} pattern="[a-z0-9][a-z0-9_-]{0,31}" required spellcheck="false" placeholder="hq" />
+					<input class="form-control" id="s-id" name="id" value="{{ s.id if s else ev.get('id', '') }}" {% if s %}disabled{% endif %} pattern="[a-z0-9][a-z0-9_\-]{0,31}" required spellcheck="false" placeholder="hq" />
 					<p class="set-help">Small letters and numbers only, for example <code>hq</code> or <code>acme</code>. It can never be changed later.</p></div>
 			</div>
 
@@ -479,7 +480,7 @@
 			<p>Backups are in the <code>backups</code> folder next to <code>docker-compose.yml</code> on the server: one <code>.dump</code> file (the database) and one <code>.keys.tgz</code> file (the key that opens saved passwords) per backup. Copy that folder somewhere else now and then: a backup on the same disk does not survive a broken disk.</p>
 			<p class="mb-1">To go back to a backup (everything after it is lost), on the server:</p>
 			<pre class="mb-0"><code>cd ~/Ardea
-./backup/restore.sh backups/ardea-2026-11-20_0200.dump</code></pre>
+sudo ./backup/restore.sh backups/ardea-2026-11-20_0200.dump</code></pre>
 		</div>
 	</details>
 	{% endif %}

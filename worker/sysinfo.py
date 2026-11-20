@@ -65,8 +65,12 @@ def problems(conn, d: dict, now: datetime) -> list[tuple[str, str]]:
         elif last_ok and now - last_ok > BACKUP_MAX_AGE:
             out.append(("backup", f"No backup for {int((now - last_ok).total_seconds() // 3600)} hours. "
                                   "Is the backup service running?"))
-        elif not last_ok and first is None:
-            pass                                       # the backup service has not run yet (new installation)
+        elif not last_ok:
+            has_users = conn.execute("SELECT to_regclass('public.users') AS t").fetchone()["t"]
+            since = (conn.execute("SELECT min(created_at) AS t FROM users").fetchone()["t"] if has_users else None) or first
+            if since and now - since > BACKUP_MAX_AGE:  # a new installation gets a day and a half
+                out.append(("backup", "No backup has been made yet. Is the backup service running? "
+                                      "Check it with: docker compose ps backup"))
     q = conn.execute("""SELECT count(*) AS n FROM alerts WHERE status IN ('new', 'retry')""").fetchone()["n"]
     avg = conn.execute("""SELECT avg(duration_ms) AS ms FROM (SELECT duration_ms FROM triage_results
                           WHERE duration_ms > 0 AND model IS NOT NULL ORDER BY created_at DESC LIMIT 20) t""").fetchone()

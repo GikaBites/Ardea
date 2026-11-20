@@ -5,6 +5,12 @@
 	const token = csrf ? csrf.getAttribute("content") : "";
 	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+	// Meters (System health): the page's security policy blocks inline styles, so the width is set here.
+	document.querySelectorAll(".set-meter [data-width]").forEach((el) => {
+		const w = Math.max(0, Math.min(100, parseFloat(el.dataset.width) || 0));
+		el.style.width = `${w}%`;
+	});
+
 	// ------------------------------------------------------------------ test buttons
 	// A test is queued for the worker (only it can open the saved secrets), then polled until it finishes.
 	async function run(button) {

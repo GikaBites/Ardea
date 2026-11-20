@@ -361,7 +361,7 @@ def run_worker():
                 time.sleep(config.POLL_SECONDS)
                 continue
             if not llm_ready(probe):
-                appsettings.activity(conn, "worker", "blocked", f"The AI model ({config.LLM_MODEL}) is not reachable; "
+                appsettings.activity(conn, "worker", "blocked", f"The AI model ({config.MODEL}) is not reachable; "
                                      "alerts wait in the queue")
                 time.sleep(config.LLM_UNAVAILABLE_BACKOFF)
                 continue

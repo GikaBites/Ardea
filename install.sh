@@ -22,7 +22,7 @@ warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 die() { printf '\n\033[31mStopped:\033[0m %s\n' "$*" >&2; exit 1; }
 ask() {  # ask "Question" "default" -> answer (reads from the terminal, also when piped from curl)
     local q=$1 def=$2 a=""
-    if [ "$YES" = 1 ] || ! [ -r /dev/tty ]; then printf '%s' "$def"; return; fi
+    if [ "$YES" = 1 ] || ! { true < /dev/tty; } 2>/dev/null; then printf '%s' "$def"; return; fi
     printf '%s [%s]: ' "$q" "$def" > /dev/tty
     read -r a < /dev/tty || true
     printf '%s' "${a:-$def}"
@@ -89,7 +89,7 @@ else
     pw=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c 40)
     cp .env.example .env
     sed -i "s|^TZ=.*|TZ=$tz|; s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$pw|; s|^ARDEA_SITE_ADDRESS=.*|ARDEA_SITE_ADDRESS=$address|" .env
-    case "$address" in *[0-9].*[0-9]) echo "ARDEA_DEFAULT_SNI=$address" >> .env ;; esac
+    case "$address" in *[0-9].*[0-9]) sed -i "s|^ARDEA_DEFAULT_SNI=.*|ARDEA_DEFAULT_SNI=$address|" .env ;; esac
     {
         echo
         echo "# Written by install.sh"
@@ -110,8 +110,22 @@ for _ in $(seq 1 90); do
     echo -n "."; sleep 2
 done
 echo
-pass=$($SUDO docker compose logs publisher 2>/dev/null | grep -o 'Temporary password: [^ ]*' | tail -1 | awk '{print $3}')
-addr=$(grep '^ARDEA_SITE_ADDRESS=' .env | cut -d= -f2 | cut -d, -f1 | tr -d ' ')
+# The check that matters: can the worker container reach Ollama? (Ollama listens only on 127.0.0.1 by default.)
+llm_now=$(grep '^LLM_URL=' .env | tail -1 | cut -d= -f2-)
+if [ -n "$llm_now" ] && ! $SUDO docker compose exec -T worker python -c \
+        "import sys,urllib.request; urllib.request.urlopen(sys.argv[1].rstrip('/') + '/api/tags', timeout=5)" \
+        "$llm_now" >/dev/null 2>&1; then
+    warn "Ardea cannot reach Ollama at $llm_now."
+    case "$llm_now" in *host.docker.internal*)
+        warn "Ollama listens only on 127.0.0.1 by default. Run: sudo systemctl edit ollama   and add:"
+        warn "  [Service]"
+        warn "  Environment=\"OLLAMA_HOST=0.0.0.0:11434\""
+        warn "then: sudo systemctl restart ollama   (allow only this server to reach port 11434)." ;;
+    esac
+    warn "Alerts wait in the queue until it answers. You can change the address on the Settings page."
+fi
+pass=$($SUDO docker compose logs publisher 2>/dev/null | grep -o 'Temporary password: [^ ]*' | tail -1 | awk '{print $3}') || pass=""
+addr=$(grep '^ARDEA_SITE_ADDRESS=' .env | cut -d= -f2 | cut -d, -f1 | tr -d ' ') || addr=""
 
 echo; bold "Done."
 echo "  Open:      https://${addr:-localhost}/"

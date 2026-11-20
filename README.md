@@ -128,8 +128,8 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M
 ```
 
-If Ollama runs on a different machine from Ardea, make it listen on the network and keep the model loaded.
-Run `sudo systemctl edit ollama` and add:
+Ollama listens only on `127.0.0.1` by default, which Ardea's containers cannot reach, even on the same
+machine. Make it listen on the network and keep the model loaded. Run `sudo systemctl edit ollama` and add:
 
 ```ini
 [Service]
@@ -139,7 +139,7 @@ Environment="OLLAMA_NUM_PARALLEL=1"
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
 ```
 
-Restart it with `sudo systemctl restart ollama`, then check from the Ardea host:
+Restart it with `sudo systemctl restart ollama`. If Ollama runs on another machine, check from the Ardea host:
 
 ```bash
 curl http://<ollama-host>:11434/api/tags
@@ -861,7 +861,9 @@ the investigation's current model step.
 at 02:00 into the `backups` folder next to `docker-compose.yml`, and deletes backups older than 14 days. Change
 the time and the number of days, or press **Back up now**, under *Settings → Backups*, which also lists every
 backup and whether it worked. A backup on the same disk does not survive a broken disk: copy the `backups`
-folder to another machine or a NAS now and then (for example with a nightly `rsync`).
+folder to another machine or a NAS now and then (for example with a nightly `rsync`). The backup files belong
+to root and only root can read them, because they hold your saved passwords and keys: copy them with `sudo`,
+and keep the copies just as safe.
 
 Backups stay on your server. Ardea never sends them anywhere, and we never receive a copy. Anyone who has the
 `backups` folder can read all of Ardea's data and the passwords saved on the Settings page, so keep it as safe
@@ -870,7 +872,7 @@ as the server itself.
 To go back to a backup (everything stored after it is lost):
 
 ```bash
-./backup/restore.sh backups/ardea-2026-11-20_0200.dump
+sudo ./backup/restore.sh backups/ardea-2026-11-20_0200.dump
 ```
 
 It asks for confirmation, stops Ardea, replaces the database (and the settings key, from the `.keys.tgz` file
