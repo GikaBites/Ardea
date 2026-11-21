@@ -12,7 +12,10 @@ Elastic License 2.0, these terms win for the paid editions.
 - **A licence key** that switches on the paid features of one Ardea installation. One installation is one
   Ardea database with its worker, fetcher and web UI. A key can be activated on as many installations as
   your order says; you can move it to a new installation by deactivating the old one in the customer portal.
-- **The Ardea playbook pack** (`*.ardpack` files) and its updates while your subscription runs.
+- **Or, for servers with no internet access, an offline licence:** a signed licence file for the company name
+  you gave at checkout, valid for 12 months from the day we issue it. It is for one installation. We e-mail it
+  within one working day of your order.
+- **The Ardea playbook pack** (`*.ardpack` files) and its updates while your subscription or offline licence runs.
 - **E-mail support** on a best-effort basis (no guaranteed response time).
 
 ## 2. What you may do
@@ -26,22 +29,29 @@ Elastic License 2.0, these terms win for the paid editions.
 
 - Share, publish or resell the playbook pack, or copy its contents into material you give to third
   parties (copying single playbooks into your own `playbooks.yaml` for your own installations is fine).
-- Share your licence key outside your organisation, or remove or get around the licence checks.
-- Use the paid editions after your subscription ended. Ardea then falls back to the free Community
+- Share your licence key or offline licence file outside your organisation, use one offline licence on more
+  installations than you paid for, or remove or get around the licence checks.
+- Use the paid editions after your subscription ended or your offline licence expired. Ardea then falls back to the free Community
   edition by itself; nothing needs to be uninstalled.
 
 ## 4. Payment
 
 Orders, payment, invoices, taxes and refunds are handled by our reseller, which acts as merchant of record, under its own
 terms. Subscriptions renew automatically until you cancel them in the customer portal. You can cancel at
-any time; the paid features stay on until the end of the period you paid for. If you are not satisfied, ask
-for a refund within 14 days of your first payment.
+any time; the paid features stay on until the end of the period you paid for. If you are not satisfied with a
+monthly or yearly plan, ask for a refund within 14 days of your first payment.
+
+**Offline licences** are paid once and do not renew by themselves. Because you can try one free for 30 days
+first (ask at support@ardeasecurity.com), an offline licence is not refunded once we have sent the licence
+file, except where the law gives you a right to a refund that cannot be removed, or if the file does not work
+and we cannot fix it. A free trial licence simply ends after 30 days; Ardea then goes back to the free
+Community edition and nothing is lost. To continue after 12 months, buy a new offline licence.
 
 ## 5. Your data
 
 Ardea runs entirely on your own infrastructure. We do not receive your alerts, logs, verdicts or user
 data. The licence check sends only the licence key and an installation name to the licence server, once a
-day. Optional features you configure (web search, notifications, your LLM) send data only to the services
+day. An offline licence is checked on your server only and sends nothing. Optional features you configure (web search, notifications, your LLM) send data only to the services
 you choose.
 
 **Backups.** Ardea's nightly backups are saved on your own server, in the `backups` folder next to Ardea. They
@@ -74,7 +84,7 @@ that cannot be limited by law (for example for fraud, or for death or personal i
 
 ## 9. Ending these terms
 
-You can stop at any time by cancelling your subscription. We can end your licence if you seriously breach
+You can stop at any time by cancelling your subscription, or by no longer using your offline licence. We can end your licence if you seriously breach
 these terms and do not fix it within 14 days of our notice. When the licence ends, sections 3, 7, 8 and 10
 keep applying.
 
