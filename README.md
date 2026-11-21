@@ -85,8 +85,9 @@ already queued are still triaged. If the licence server cannot be reached, the p
 click **Check the licence now**. (Or put it in `.env` as `ARDEA_LICENSE_KEY` and run `docker compose up -d worker`.) Check it with `docker compose exec worker python licensing.py`; admins also
 see the edition on the **Users** page. The worker contacts the Ardea store's licence server (`api.polar.sh`) once a day with only the
 key and an installation name, never alert data. With the egress lockdown, start the `egress` profile and set
-`ARDEA_LICENSE_PROXY=http://egress-proxy:3128`. For a network without internet access, ask for an
-offline licence file and put it in `license/ardea.license`.
+`ARDEA_LICENSE_PROXY=http://egress-proxy:3128`. For a network without internet access, buy a
+12-month offline licence (or ask for a free 30-day trial) at https://ardeasecurity.com/#offline, and put the
+file you receive in `license/ardea.license` (or paste it under **Settings → Licence → Offline licence file**).
 
 ---
 
