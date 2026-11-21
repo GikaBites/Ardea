@@ -28,5 +28,19 @@
         ]
       }
     }
+  },
+  "ardea_worker_basic": {
+    "_comment": "For the free (Basic) Elastic licence, which does not allow hiding fields: the same read-only access without field_security. Password and token fields are not hidden.",
+    "name": "ardea-worker",
+    "expiration": "180d",
+    "role_descriptors": {
+      "ardea_worker": {
+        "cluster": [],
+        "indices": [
+          { "names": [".alerts-security.alerts-default*", ".internal.alerts-security.alerts-default-*", "logs-*"],
+            "privileges": ["read"] }
+        ]
+      }
+    }
   }
 }

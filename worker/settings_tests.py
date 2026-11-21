@@ -68,6 +68,10 @@ def _siem(siem_id: str) -> tuple[bool, str]:
             continue
         if r.status_code == 200:
             parts.append(f"{label}: OK.")
+        elif r.status_code == 403 and "field and document level security" in r.text:
+            parts.append(f"{label}: this cluster has the free Elastic licence, which cannot hide fields. "
+                         "Create this key from the ardea_worker_basic block in elastic/roles.json.")
+            ok = False
         elif r.status_code in (401, 403):
             parts.append(f"{label}: refused (HTTP {r.status_code}). Check the key and its role (elastic/roles.json).")
             ok = False

@@ -209,7 +209,7 @@
 			<h3 class="set-step"><span>3</span> The two read-only keys</h3>
 			<p class="set-help">In Kibana: <b>Stack Management → API keys → Create API key</b>, once for each key below, with the role from the file <code>elastic/roles.json</code>. Copy the <b>Encoded</b> value. Ardea can only read; it can never change anything in your SIEM.</p>
 			<div class="set-grid">
-				{% for key, label, help in (("fetcher_api_key", "Key for collecting alerts", "Role \"ardea_fetcher\": reads the alerts only."), ("worker_api_key", "Key for investigating", "Role \"ardea_worker\": reads alerts and logs.")) %}
+				{% for key, label, help in (("fetcher_api_key", "Key for collecting alerts", "Role \"ardea_fetcher\": reads the alerts only."), ("worker_api_key", "Key for investigating", "Role \"ardea_worker\": reads alerts and logs. On the free Elastic licence, use \"ardea_worker_basic\" instead.")) %}
 				{% set sec = s.secrets[key] if s else {} %}
 				<div class="set-field"><label class="set-label" for="s-{{ key }}">{{ label }}</label>
 					<input class="form-control" type="password" id="s-{{ key }}" name="{{ key }}" autocomplete="new-password" {% if not has_key %}disabled{% endif %}

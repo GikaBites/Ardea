@@ -174,6 +174,12 @@ POST /_security/api_key
 Keep the `encoded` value from each response for the next step. The keys expire after 180 days, so set a reminder
 to renew them.
 
+**Free (Basic) Elastic licence.** Hiding fields needs an Elastic Platinum or Enterprise licence. On the free licence,
+every search with the `ardea_worker` key fails with *current license is non-compliant for [field and document level
+security]*. Use the `ardea_worker_basic` block from the same file instead: it reads the same indices, still cannot
+write anything, but does not hide password and token fields. Those fields then reach the AI model, which runs on
+your own Ollama, and can appear in the investigation trail.
+
 ### 3. Get the code and configure it
 
 ```bash
@@ -959,6 +965,7 @@ For development with live code changes:
 | Worker log: `LLM not reachable ... waiting` | Ollama is down or unreachable. Alerts wait in the queue. Check `curl http://<ollama-host>:11434/api/tags` from the Docker host. |
 | Worker log: `model ... is not installed` | `LLM_MODEL` must match `ollama list` exactly. |
 | Alerts fail with `SiemError ... permission denied` | The API key expired or lacks index privileges. Recreate it from `elastic/roles.json`. |
+| Settings test or worker: *license is non-compliant for [field and document level security]* | The cluster has the free Elastic licence, which cannot hide fields. Create the worker key from the `ardea_worker_basic` block in `elastic/roles.json`. |
 | Alerts fail with `SSLError` | Elasticsearch uses a private CA: mount the CA file into the containers and set `ELASTIC_CA_CERT` (one SIEM), or put it in `siems/` and set `ca_cert` (several SIEMs). |
 | Fetcher or worker exits with `siems.json ...` | The file is invalid; the message names the entry. `PermissionError`: run `sudo chown 10001 siems/siems.json`. |
 | Fetcher log: `[<id>] fetch failed` | That cluster is unreachable or its key is wrong. The other SIEMs keep being collected. |
