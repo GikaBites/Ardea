@@ -1486,6 +1486,17 @@ pre {
 .set-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem 1.5rem; }
 .set-field { min-width: 0; }
 .set-wide { grid-column: 1 / -1; }
+.set-licence { border: 0; padding: 0; margin: 0.9rem 0 0.4rem; }
+.set-licence legend { float: none; width: auto; margin-bottom: 0.3rem; }
+.set-howto { font-size: 0.86rem; color: var(--ar-text-2); margin: 0.6rem 0 1rem; padding-left: 1.3rem; }
+.set-howto li { margin: 0.2rem 0; }
+.set-request { margin-top: 0.6rem; }
+.set-request > summary { cursor: pointer; font-size: 0.85rem; color: var(--ar-accent-2); }
+.set-request__box { position: relative; margin-top: 0.5rem; }
+.set-request__for { font-size: 0.8rem; color: var(--ar-muted); margin: 0 0 0.25rem; }
+.set-request__box pre { font-size: 0.74rem; line-height: 1.45; background: var(--ar-bg); border: 1px solid var(--ar-line-2); font-family: var(--ar-font-mono); border-radius: 6px; padding: 0.7rem 0.8rem; margin: 0; max-height: 28rem; overflow: auto; white-space: pre; color: var(--ar-text-2); }
+.set-request__box .btn { position: absolute; top: 0.4rem; right: 0.4rem; }
+.set-request__box:has(.set-request__for) .btn { top: 1.7rem; }
 .set-label { display: block; font-weight: 600; font-size: 0.92rem; margin-bottom: 0.35rem; color: var(--ar-text); }
 .set-help { font-size: 0.82rem; color: var(--ar-muted); margin: 0.35rem 0 0; }
 .set-env { font-size: 0.85rem; color: var(--ar-text-2); margin: 0; padding: 0.45rem 0.65rem; border: 1px dashed var(--ar-line-2); border-radius: 8px; overflow-wrap: anywhere; }

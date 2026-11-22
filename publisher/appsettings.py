@@ -665,8 +665,10 @@ class Runtime:
         self.ready = False
         self.last = 0.0
 
-    def tick(self, conn, force: bool = False) -> bool:
-        if not force and time.monotonic() - self.last < self.every:
+    def tick(self, conn, force: bool = False, now: bool = False) -> bool:
+        """`now` skips the wait between checks (a settings test is queued: it must use what was just saved);
+        `force` also reloads when nothing changed."""
+        if not (force or now) and time.monotonic() - self.last < self.every:
             return False
         self.last = time.monotonic()
         if not self.ready:

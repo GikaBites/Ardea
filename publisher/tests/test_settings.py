@@ -384,6 +384,8 @@ def test_settings_templates_need_msp_and_apply_to_many_siems(key, monkeypatch):
     assert items["beta"]["notify"] == {"smtp_to": ["soc@msp.example"]} and items["acme"]["url"] == "https://es-acme.example:9200"
     html = c.get("/admin/settings/siems?edit=new", base_url=BASE).get_data(as_text=True)
     assert 'Started from the default template "Windows customers"' in html and "logs-endpoint.*" in html
+    assert html.count("POST /_security/api_key") == 3 and "field_security" in html          # the key requests to copy
+    assert 'data-licence="basic"' in html and 'data-licence="paid"' in html
     assert post(c, "/admin/settings/siems/templates/delete", {"name": "Windows customers"}).status_code == 200
     assert json.loads(rows()[A.SIEM_TEMPLATES_KEY]["value"]) == []
     for sid in ("acme", "beta"):

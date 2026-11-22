@@ -48,8 +48,10 @@ def _siem(siem_id: str) -> tuple[bool, str]:
     if siem is None:
         return False, "This SIEM is not saved yet, or it is switched off."
     parts, ok = [], True
-    for label, key, index in (("Fetcher key", siem.fetcher_api_key, siem.alerts_index),
-                              ("Worker key", siem.worker_api_key, siem.events_indices[0])):
+    for label, key, index, needs in (
+            ("Fetcher key", siem.fetcher_api_key, siem.alerts_index, [f"{siem.alerts_index}*"]),
+            ("Worker key", siem.worker_api_key, siem.events_indices[0],
+             [f"{siem.alerts_index}*", *siem.events_indices])):
         if not key:
             parts.append(f"{label}: not set.")
             ok = False
@@ -67,18 +69,45 @@ def _siem(siem_id: str) -> tuple[bool, str]:
             ok = False
             continue
         if r.status_code == 200:
-            parts.append(f"{label}: OK.")
+            # A search on an index the key cannot read still answers 200 (with nothing in it), so ask Elastic
+            # what the key may read. This catches the alerts key pasted into the investigating box.
+            missing = _cannot_read(siem, key, needs)
+            if missing:
+                which = "collecting alerts" if label == "Fetcher key" else "investigating"
+                hint = (" Did you paste the key for collecting alerts here?" if label == "Worker key"
+                        and f"{siem.alerts_index}*" not in missing else "")
+                parts.append(f"{label}: it cannot read {', '.join(missing)}.{hint} Create it with the request "
+                             f"for {which} shown when you click Change.")
+                ok = False
+            else:
+                parts.append(f"{label}: OK.")
         elif r.status_code == 403 and "field and document level security" in r.text:
             parts.append(f"{label}: this cluster has the free Elastic licence, which cannot hide fields. "
-                         "Create this key from the ardea_worker_basic block in elastic/roles.json.")
+                         "Click Change, choose the free licence and create this key again with the request shown.")
             ok = False
         elif r.status_code in (401, 403):
-            parts.append(f"{label}: refused (HTTP {r.status_code}). Check the key and its role (elastic/roles.json).")
+            parts.append(f"{label}: refused (HTTP {r.status_code}). Check that you copied the whole key, or click "
+                         "Change and create it again with the request shown.")
             ok = False
         else:
             parts.append(f"{label}: HTTP {r.status_code}.")
             ok = False
     return ok, " ".join(parts)
+
+
+def _cannot_read(siem, key: str, names: list[str]) -> list[str]:
+    """The index patterns this API key may not read. Empty when it may read all of them, or when Elastic
+    does not answer the question (then the search above is the only check)."""
+    try:
+        r = requests.post(f"{siem.url}/_security/user/_has_privileges", timeout=10, verify=siem.verify,
+                          json={"index": [{"names": names, "privileges": ["read"]}]},
+                          headers={"Authorization": f"ApiKey {key}", "Content-Type": "application/json"})
+        if r.status_code != 200:
+            return []
+        index = r.json().get("index") or {}
+        return [n for n in names if not (index.get(n) or {}).get("read", True)]
+    except (requests.RequestException, ValueError, AttributeError):
+        return []
 
 
 def _notify(channel: str) -> tuple[bool, str]:
@@ -145,6 +174,15 @@ def _health(conn) -> tuple[bool, str]:
         if r["quiet_hosts"]:
             parts.append(f"Quiet watched hosts: {', '.join(h['host'] for h in r['quiet_hosts'][:10])}.")
     return all(r["status"] == "ok" and not r["quiet_hosts"] for r in rows), " ".join(parts)
+
+
+def queued(conn) -> bool:
+    """True when a test is waiting. The caller then reloads the settings first, so a test run right after
+    Save uses the values just saved."""
+    try:
+        return conn.execute("SELECT 1 FROM settings_tests WHERE status = 'queued' LIMIT 1").fetchone() is not None
+    except Exception:
+        return False
 
 
 def run_pending(conn, limit: int = 3):

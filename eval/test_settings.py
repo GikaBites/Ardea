@@ -37,6 +37,7 @@ def test_shared_modules_are_identical():
         assert filecmp.cmp(ROOT / "worker" / name, ROOT / "fetcher" / name, shallow=False), name
         assert filecmp.cmp(ROOT / "worker" / name, ROOT / "publisher" / name, shallow=False), name
     assert filecmp.cmp(ROOT / "worker" / "incidents.py", ROOT / "publisher" / "incidents.py", shallow=False)
+    assert filecmp.cmp(ROOT / "elastic" / "roles.json", ROOT / "publisher" / "elastic_roles.json", shallow=False)
 
 
 def test_every_field_is_well_formed():
@@ -240,3 +241,78 @@ def test_notifications_use_the_msp_brand(monkeypatch):
     assert notifier._subject(p).startswith("[Ardea]")
     licensing.set_tier("msp")
     assert notifier._subject(p).startswith("[Acme SOC]")
+
+
+class _Resp:
+    def __init__(self, status, body):
+        self.status_code, self._body = status, body
+        self.text = json.dumps(body)
+
+    def json(self):
+        return self._body
+
+
+def _fake_elastic(monkeypatch, readable: dict, licence_error: set = frozenset()):
+    """readable: API key -> index patterns it may read. licence_error: keys whose search hits the FLS licence."""
+    def post(url, json=None, headers=None, **_):
+        key = headers["Authorization"].split()[1]
+        if url.endswith("/_security/user/_has_privileges"):
+            names = json["index"][0]["names"]
+            return _Resp(200, {"index": {n: {"read": n in readable.get(key, ())} for n in names}})
+        if key in licence_error:
+            return _Resp(403, {"error": {"reason": "current license is non-compliant for [field and document "
+                                                   "level security]"}})
+        return _Resp(200, {"hits": {"hits": []}})
+    monkeypatch.setattr(settings_tests.requests, "post", post)
+    A.OVERLAY.update({A.SIEMS_KEY: json.dumps([{"id": "hq", "name": "HQ", "url": "https://es-hq:9200"}]),
+                      "SIEM.hq.fetcher_api_key": "fk", "SIEM.hq.worker_api_key": "wk"})
+
+
+ALERTS = ".alerts-security.alerts-default*"
+
+
+def test_siem_test_accepts_the_right_keys(monkeypatch):
+    _fake_elastic(monkeypatch, {"fk": {ALERTS}, "wk": {ALERTS, "logs-*"}})
+    assert settings_tests._siem("hq") == (True, "Fetcher key: OK. Worker key: OK.")
+
+
+def test_siem_test_catches_the_alerts_key_in_the_investigating_box(monkeypatch):
+    _fake_elastic(monkeypatch, {"fk": {ALERTS}, "wk": {ALERTS}})       # the fetcher's role, pasted twice
+    ok, detail = settings_tests._siem("hq")
+    assert not ok and "Worker key: it cannot read logs-*" in detail and "key for collecting alerts" in detail
+
+
+def test_siem_test_catches_a_fetcher_key_that_cannot_read_alerts(monkeypatch):
+    _fake_elastic(monkeypatch, {"fk": set(), "wk": {ALERTS, "logs-*"}})
+    ok, detail = settings_tests._siem("hq")
+    assert not ok and f"Fetcher key: it cannot read {ALERTS}" in detail
+
+
+def test_siem_test_explains_the_free_licence(monkeypatch):
+    _fake_elastic(monkeypatch, {"fk": {ALERTS}, "wk": {ALERTS, "logs-*"}}, licence_error={"wk"})
+    ok, detail = settings_tests._siem("hq")
+    assert not ok and "free Elastic licence" in detail and "choose the free licence" in detail
+
+
+def test_siem_test_still_works_when_elastic_will_not_say_what_a_key_may_read(monkeypatch):
+    _fake_elastic(monkeypatch, {})
+    real = settings_tests.requests.post
+
+    def post(url, **kw):
+        if url.endswith("/_has_privileges"):
+            return _Resp(404, {})
+        return real(url, **kw)
+    monkeypatch.setattr(settings_tests.requests, "post", post)
+    assert settings_tests._siem("hq")[0] is True
+
+
+def test_runtime_reloads_at_once_when_asked(monkeypatch):
+    rt = A.Runtime("worker", every=3600)
+    rt.ready, rt.last = True, float("-inf")
+    calls = []
+    monkeypatch.setattr(A, "refresh", lambda conn, key, force=False: calls.append(force) or False)
+    monkeypatch.setattr(A, "report", lambda *a: None)
+    rt.tick(None)                                       # first check
+    rt.tick(None)                                       # too soon: skipped
+    rt.tick(None, now=True)                             # a test is queued: checks again at once, without forcing
+    assert calls == [False, False]

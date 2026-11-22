@@ -1,0 +1,46 @@
+{
+  "_comment": "Create two API keys with these role descriptors (Kibana > Stack Management > API keys, or POST /_security/api_key). Neither can write anything.",
+  "ardea_fetcher": {
+    "name": "ardea-fetcher",
+    "expiration": "180d",
+    "role_descriptors": {
+      "ardea_fetcher": {
+        "cluster": [],
+        "indices": [
+          { "names": [".alerts-security.alerts-default*", ".internal.alerts-security.alerts-default-*"],
+            "privileges": ["read", "view_index_metadata"] }
+        ]
+      }
+    }
+  },
+  "ardea_worker": {
+    "name": "ardea-worker",
+    "expiration": "180d",
+    "role_descriptors": {
+      "ardea_worker": {
+        "cluster": [],
+        "indices": [
+          { "names": [".alerts-security.alerts-default*", ".internal.alerts-security.alerts-default-*"],
+            "privileges": ["read"] },
+          { "names": ["logs-*"],
+            "privileges": ["read"],
+            "field_security": { "grant": ["*"], "except": ["*.password", "*.token", "http.request.body.content"] } }
+        ]
+      }
+    }
+  },
+  "ardea_worker_basic": {
+    "_comment": "For the free (Basic) Elastic licence, which does not allow hiding fields: the same read-only access without field_security. Password and token fields are not hidden.",
+    "name": "ardea-worker",
+    "expiration": "180d",
+    "role_descriptors": {
+      "ardea_worker": {
+        "cluster": [],
+        "indices": [
+          { "names": [".alerts-security.alerts-default*", ".internal.alerts-security.alerts-default-*", "logs-*"],
+            "privileges": ["read"] }
+        ]
+      }
+    }
+  }
+}

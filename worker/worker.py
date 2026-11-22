@@ -273,7 +273,7 @@ def run_tasks():
         try:
             if conn is None or conn.closed:
                 conn = db.get_connection()
-            if settings.tick(conn) or llm is None:
+            if settings.tick(conn, now=settings_tests.queued(conn)) or llm is None:
                 apply_settings(conn)
                 llm = Client(host=config.LLM_URL, timeout=config.LLM_TIMEOUT)
                 probe = Client(host=config.LLM_URL, timeout=10)
@@ -318,7 +318,9 @@ def run_worker():
         try:
             if conn is None or conn.closed:
                 conn = db.get_connection()
-            if settings.tick(conn) or llm is None:
+            tasks_elsewhere = tasks_worker_alive(conn)
+            test_waiting = not tasks_elsewhere and settings_tests.queued(conn)
+            if settings.tick(conn, now=test_waiting) or llm is None:
                 apply_settings(conn)
                 llm = Client(host=config.LLM_URL, timeout=config.LLM_TIMEOUT)
                 probe = Client(host=config.LLM_URL, timeout=10)
@@ -327,7 +329,6 @@ def run_worker():
                     licensing.refresh(conn)
                 _describe()
                 described = True
-            tasks_elsewhere = tasks_worker_alive(conn)
             if not tasks_elsewhere:
                 settings_tests.run_pending(conn)
             packs.tick(conn)                     # playbook pack: uploads, daily update (Pro / MSP)
