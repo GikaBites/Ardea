@@ -154,31 +154,100 @@ Ollama has no authentication, so allow only the Ardea host to reach port 11434.
 
 ### 2. Create two read-only Elastic API keys
 
-[`elastic/roles.json`](elastic/roles.json) defines two keys:
+Ardea needs two keys. Neither can write anything:
 
-- **fetcher**: reads the alerts index only
-- **worker**: reads alerts and `logs-*`, with password and token fields hidden
+- **Key for collecting alerts**: reads the alerts only
+- **Key for investigating**: reads the alerts and the logs (`logs-*`)
 
-Neither key can write anything. In Kibana → **Dev Tools**, create each key using its block from the file as the
-request body:
+You can do this now or later: the Settings page (step 6) shows the same requests, with a Copy button.
+
+1. In Kibana, open the menu and click **Dev Tools** (under Management).
+2. Paste a request below into the console on the left and click the ▶ button next to it.
+3. In the answer on the right, copy the long value after `"encoded":` (without the quotes). You paste it into
+   Ardea's Settings page in step 6.
+
+**Key for collecting alerts**
 
 ```
 POST /_security/api_key
 {
   "name": "ardea-fetcher",
   "expiration": "180d",
-  "role_descriptors": { ... copy from elastic/roles.json ... }
+  "role_descriptors": {
+    "ardea_fetcher": {
+      "cluster": [],
+      "indices": [
+        {
+          "names": [".alerts-security.alerts-default*", ".internal.alerts-security.alerts-default-*"],
+          "privileges": ["read", "view_index_metadata"]
+        }
+      ]
+    }
+  }
 }
 ```
 
-Keep the `encoded` value from each response for the next step. The keys expire after 180 days, so set a reminder
-to renew them.
+**Key for investigating.** Which request you use depends on your Elastic licence (Kibana → **Stack Management →
+License management**).
 
-**Free (Basic) Elastic licence.** Hiding fields needs an Elastic Platinum or Enterprise licence. On the free licence,
-every search with the `ardea_worker` key fails with *current license is non-compliant for [field and document level
-security]*. Use the `ardea_worker_basic` block from the same file instead: it reads the same indices, still cannot
-write anything, but does not hide password and token fields. Those fields then reach the AI model, which runs on
-your own Ollama, and can appear in the investigation trail.
+With the free (Basic) licence:
+
+```
+POST /_security/api_key
+{
+  "name": "ardea-worker",
+  "expiration": "180d",
+  "role_descriptors": {
+    "ardea_worker": {
+      "cluster": [],
+      "indices": [
+        {
+          "names": [".alerts-security.alerts-default*", ".internal.alerts-security.alerts-default-*", "logs-*"],
+          "privileges": ["read"]
+        }
+      ]
+    }
+  }
+}
+```
+
+With Platinum, Enterprise or a trial, use this one instead. It also hides password and token fields from Ardea
+(the free licence cannot hide fields, so with it those fields can reach the AI model, which runs on your own
+Ollama, and can appear in the investigation trail):
+
+```
+POST /_security/api_key
+{
+  "name": "ardea-worker",
+  "expiration": "180d",
+  "role_descriptors": {
+    "ardea_worker": {
+      "cluster": [],
+      "indices": [
+        {
+          "names": [".alerts-security.alerts-default*", ".internal.alerts-security.alerts-default-*"],
+          "privileges": ["read"]
+        },
+        {
+          "names": ["logs-*"],
+          "privileges": ["read"],
+          "field_security": {
+            "grant": ["*"],
+            "except": ["*.password", "*.token", "http.request.body.content"]
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+If you use the paid-licence request on the free licence, every search fails with *current license is
+non-compliant for [field and document level security]*. The **Test** button on the Settings page tells you when
+this happens.
+
+The keys expire after 180 days, so set a reminder to renew them. The same requests are in
+[`elastic/roles.json`](elastic/roles.json).
 
 ### 3. Get the code and configure it
 
@@ -964,8 +1033,8 @@ For development with live code changes:
 |---|---|
 | Worker log: `LLM not reachable ... waiting` | Ollama is down or unreachable. Alerts wait in the queue. Check `curl http://<ollama-host>:11434/api/tags` from the Docker host. |
 | Worker log: `model ... is not installed` | `LLM_MODEL` must match `ollama list` exactly. |
-| Alerts fail with `SiemError ... permission denied` | The API key expired or lacks index privileges. Recreate it from `elastic/roles.json`. |
-| Settings test or worker: *license is non-compliant for [field and document level security]* | The cluster has the free Elastic licence, which cannot hide fields. Create the worker key from the `ardea_worker_basic` block in `elastic/roles.json`. |
+| Alerts fail with `SiemError ... permission denied` | The API key expired or lacks index privileges. Create it again with the request in step 2 (also shown on Settings → SIEMs → Change). |
+| Settings test or worker: *license is non-compliant for [field and document level security]* | The cluster has the free Elastic licence, which cannot hide fields. Create the key for investigating again with the free-licence request (README step 2, or Settings → SIEMs → Change). |
 | Alerts fail with `SSLError` | Elasticsearch uses a private CA: mount the CA file into the containers and set `ELASTIC_CA_CERT` (one SIEM), or put it in `siems/` and set `ca_cert` (several SIEMs). |
 | Fetcher or worker exits with `siems.json ...` | The file is invalid; the message names the entry. `PermissionError`: run `sudo chown 10001 siems/siems.json`. |
 | Fetcher log: `[<id>] fetch failed` | That cluster is unreachable or its key is wrong. The other SIEMs keep being collected. |

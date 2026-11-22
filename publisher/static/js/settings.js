@@ -11,6 +11,35 @@
 		el.style.width = `${w}%`;
 	});
 
+	// ------------------------------------------------------------------ Elastic key requests (SIEM form)
+	// The licence choice shows the matching request for the investigating key. It is not part of the form,
+	// so choosing it does not count as an unsaved change.
+	const licence = document.querySelector("[data-licence-choice]");
+	if (licence) {
+		const show = (value) => document.querySelectorAll(".set-request__box[data-licence]").forEach((el) => {
+			el.hidden = el.dataset.licence !== value;
+		});
+		let saved = null;
+		try { saved = window.localStorage.getItem("ardea.elasticLicence"); } catch (e) { /* storage blocked */ }
+		const radio = licence.querySelector(`input[value="${saved === "paid" ? "paid" : "basic"}"]`);
+		radio.checked = true;
+		show(radio.value);
+		licence.addEventListener("input", (ev) => ev.stopPropagation());
+		licence.addEventListener("change", (ev) => {
+			ev.stopPropagation();
+			show(ev.target.value);
+			try { window.localStorage.setItem("ardea.elasticLicence", ev.target.value); } catch (e) { /* storage blocked */ }
+		});
+	}
+	document.addEventListener("click", (ev) => {
+		const btn = ev.target.closest("[data-copy-request]");
+		if (!btn) return;
+		const pre = btn.parentElement.querySelector("pre");
+		const done = () => { btn.textContent = "Copied"; setTimeout(() => { btn.textContent = "Copy"; }, 1500); };
+		const select = () => { const r = document.createRange(); r.selectNodeContents(pre); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); };
+		try { navigator.clipboard.writeText(pre.textContent).then(done, select); } catch (e) { select(); }
+	});
+
 	// ------------------------------------------------------------------ test buttons
 	// A test is queued for the worker (only it can open the saved secrets), then polled until it finishes.
 	async function run(button) {

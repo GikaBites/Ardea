@@ -207,18 +207,39 @@
 			</div>
 
 			<h3 class="set-step"><span>3</span> The two read-only keys</h3>
-			<p class="set-help">In Kibana: <b>Stack Management → API keys → Create API key</b>, once for each key below, with the role from the file <code>elastic/roles.json</code>. Copy the <b>Encoded</b> value. Ardea can only read; it can never change anything in your SIEM.</p>
+			<p class="set-help">Ardea needs two keys from Elastic. Both can only read: Ardea can never change anything in your SIEM.</p>
+			<fieldset class="set-licence" data-licence-choice>
+				<legend class="set-label">Which Elastic licence do you have?</legend>
+				<label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="kibana_licence" value="basic" form="kibana-licence-none" checked /> Free (Basic)</label>
+				<label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="kibana_licence" value="paid" form="kibana-licence-none" /> Platinum, Enterprise or trial</label>
+				<p class="set-help">Not sure? In Kibana, open <b>Stack Management → License management</b>. With a paid licence, choose it: the key for investigating then also hides password and token fields from Ardea.</p>
+			</fieldset>
+			<ol class="set-howto">
+				<li>In Kibana, open the menu and click <b>Dev Tools</b> (under Management).</li>
+				<li>Click <b>Copy</b> on a request below, paste it into the console on the left, and click the ▶ button next to it.</li>
+				<li>In the answer on the right, copy the long value after <code>"encoded":</code> (without the quotes) and paste it into the box below.</li>
+			</ol>
 			<div class="set-grid">
-				{% for key, label, help in (("fetcher_api_key", "Key for collecting alerts", "Role \"ardea_fetcher\": reads the alerts only."), ("worker_api_key", "Key for investigating", "Role \"ardea_worker\": reads alerts and logs. On the free Elastic licence, use \"ardea_worker_basic\" instead.")) %}
+				{% for key, label, help in (("fetcher_api_key", "Key for collecting alerts", "Reads the alerts only."), ("worker_api_key", "Key for investigating", "Reads the alerts and the logs.")) %}
 				{% set sec = s.secrets[key] if s else {} %}
 				<div class="set-field"><label class="set-label" for="s-{{ key }}">{{ label }}</label>
 					<input class="form-control" type="password" id="s-{{ key }}" name="{{ key }}" autocomplete="new-password" {% if not has_key %}disabled{% endif %}
-						placeholder="{% if sec.set %}Saved{% if sec.hint %} (ends in {{ sec.hint }}){% endif %}. Type only to replace it.{% else %}Paste the Encoded key{% endif %}" />
+						placeholder="{% if sec.set %}Saved{% if sec.hint %} (ends in {{ sec.hint }}){% endif %}. Type only to replace it.{% else %}Paste the encoded value{% endif %}" />
 					{% if sec.set %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="{{ key }}__clear" value="1" /> Delete the saved key</label>{% endif %}
 					<p class="set-help">{{ help }}</p>
-					{% if sec.problem %}<p class="set-problem">Enter it again: {{ sec.problem }}.</p>{% endif %}</div>
+					{% if sec.problem %}<p class="set-problem">Enter it again: {{ sec.problem }}.</p>{% endif %}
+					<details class="set-request" {% if not sec.set %}open{% endif %}>
+						<summary>Request to paste in Dev Tools</summary>
+						{% if key == "fetcher_api_key" %}
+						<div class="set-request__box"><pre>{{ kibana.fetcher }}</pre><button type="button" class="btn btn-outline-light btn-sm" data-copy-request>Copy</button></div>
+						{% else %}
+						<div class="set-request__box" data-licence="basic"><p class="set-request__for">For the free (Basic) licence</p><pre>{{ kibana.worker_basic }}</pre><button type="button" class="btn btn-outline-light btn-sm" data-copy-request>Copy</button></div>
+						<div class="set-request__box" data-licence="paid"><p class="set-request__for">For Platinum, Enterprise or trial</p><pre>{{ kibana.worker }}</pre><button type="button" class="btn btn-outline-light btn-sm" data-copy-request>Copy</button></div>
+						{% endif %}
+					</details></div>
 				{% endfor %}
 			</div>
+			<p class="set-help">The keys stop working after 180 days: set a reminder to create new ones. After saving, click <b>Test</b> on the list of SIEMs to check both keys.</p>
 			<div class="set-field"><label class="form-check form-switch set-switch"><input class="form-check-input" type="checkbox" role="switch" name="enabled" value="true" {% if ev.enabled %}checked{% endif %} /> Read alerts from this SIEM</label>
 				<p class="set-help">Turn it off to pause this SIEM without deleting it.</p></div>
 
@@ -229,6 +250,7 @@
 						<input class="form-control" id="s-alerts" name="alerts_index" value="{{ ev.get('alerts_index', '') }}" placeholder=".alerts-security.alerts-default" spellcheck="false" /></div>
 					<div class="set-field"><label class="set-label" for="s-events">Where the logs are (indices)</label>
 						<input class="form-control" id="s-events" name="events_indices" value="{{ ev.get('events_indices', '') }}" placeholder="logs-*" spellcheck="false" /></div>
+					<p class="set-help set-wide">If you change these, change the index names in the two key requests above to match before you create the keys.</p>
 					<div class="set-field set-wide"><label class="set-label" for="s-ca">Certificate authority (PEM)</label>
 						<textarea class="form-control set-lines" id="s-ca" name="ca_pem" rows="3" spellcheck="false" placeholder="{% if s and s.ca_pem %}A certificate is saved. Paste a new one to replace it.{% else %}Only if your Elasticsearch uses its own certificate authority.{% endif %}"></textarea>
 						{% if s and s.ca_pem %}<label class="form-check set-clear"><input class="form-check-input" type="checkbox" name="ca_pem__clear" value="1" /> Delete the saved certificate</label>{% endif %}</div>

@@ -15,6 +15,7 @@ from flask import Blueprint, abort, g, jsonify, redirect, render_template, reque
 import appsettings as A
 import auth
 import editions
+import kibana_keys
 import siems as siem_config
 from db import get_connection
 
@@ -994,7 +995,7 @@ def _render(group, status=200, error=None, notes=None, edit=None, form=None, tem
         "settings.html", group=group, groups=A.GROUPS + [("audit", "Change log")], fields=fields,
         menu=MENU, info=GROUP_INFO, overview=overview, health=health, backups=backups, channel_fields=CHANNEL_FIELDS, channel_info=CHANNEL_INFO,
         fields_by_name={st["f"].name: st for st in fields},
-        siems=siems, edit=edit, ev=ev, packs=packs, templates=templates, template=template, tv=tv,
+        siems=siems, edit=edit, ev=ev, kibana=kibana_keys.requests() if group == "siems" else None, packs=packs, templates=templates, template=template, tv=tv,
         leftovers=leftovers, can_templates=editions.has("templates"), can_integrations=editions.has("integrations"), pack_feature=editions.has("playbook_pack"),
         has_key=bool(snap["meta"]), error=error, notes=notes or [], audit=audit,
         workers=snap["status"], logo=bool(logo), needs_password=not g.user.get("sso"),
