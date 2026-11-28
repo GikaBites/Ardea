@@ -23,6 +23,9 @@ _The demo, with sample alerts. The verdicts shown are examples, not real results
 **Install on your own server** (Linux with Docker Compose v2): see [Installation](#installation), or run
 `curl -fsSL https://raw.githubusercontent.com/GikaBites/Ardea/main/install.sh | bash`.
 
+Videos: [Ardea in 37 seconds](https://ardeasecurity.com/ardea-promo-wide.mp4) ·
+[Install Ardea in 3 steps (1 min 13 s)](https://ardeasecurity.com/ardea-install-wide.mp4)
+
 ## Try the demo (2 minutes, no SIEM needed)
 
 ```bash
@@ -121,6 +124,11 @@ type in the browser, where Ollama runs, the model, the time zone), writes `.env`
 password, starts everything and prints the address and the first admin password. Then open **Settings → Start
 here** and add your SIEM. Running it again keeps your `.env` and only updates and restarts Ardea. Without
 questions: `ARDEA_ADDRESS=ardea.example.com LLM_URL=http://10.0.0.5:11434 LLM_MODEL=qwen3:14b ./install.sh --yes`.
+
+[![Watch Ardea being installed and set up in 3 steps (1 min 13 s)](img/install-video.jpg)](https://ardeasecurity.com/ardea-install-wide.mp4)
+
+_Click the picture to watch the video: one command, connect Elastic, pick your AI model. It is sped up and uses
+sample data._
 
 The steps below do the same by hand, and explain the Elastic API keys and HTTPS in detail.
 
